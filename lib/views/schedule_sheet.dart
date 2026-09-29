@@ -22,6 +22,7 @@ Future<void> showScheduleSheet({
   Contact? picked = initialContact ??
       (contacts.isNotEmpty ? contacts.first : null);
   final msg = TextEditingController();
+  final manual = TextEditingController();
   final hh = TextEditingController(text: '09');
   final mm = TextEditingController(text: '00');
   final tag = TextEditingController();
@@ -102,6 +103,17 @@ Future<void> showScheduleSheet({
                   ),
                   const SizedBox(height: 8),
                   TextField(
+                      controller: manual,
+                      keyboardType: TextInputType.phone,
+                      style: const TextStyle(
+                          color: HudColors.text),
+                      decoration: const InputDecoration(
+                          labelText:
+                              'OU DIGITE O DESTINO // ex.: 5511999990001',
+                          hintText:
+                              'número com DDI+DDD (vale p/ quem não está na lista)')),
+                  const SizedBox(height: 8),
+                  TextField(
                       controller: msg,
                       maxLines: 3,
                       style: const TextStyle(
@@ -159,9 +171,28 @@ Future<void> showScheduleSheet({
                                 int.tryParse(hh.text) ?? -1;
                             final m =
                                 int.tryParse(mm.text) ?? -1;
-                            if (picked == null) {
+                            // Destino manual tem prioridade: número
+                            // digitado vale mesmo fora da lista.
+                            Contact? target = picked;
+                            final digits = manual.text
+                                .replaceAll(RegExp(r'\D'), '');
+                            if (digits.isNotEmpty) {
+                              if (digits.length < 10 ||
+                                  digits.length > 15) {
+                                setState(() => error =
+                                    'Número manual inválido: use DDI+DDD+número');
+                                return;
+                              }
+                              target = Contact(
+                                  id: 'wa:$digits',
+                                  displayName: '$digits (manual)',
+                                  handle: digits,
+                                  kind: 'contact',
+                                  driverName: 'whatsapp');
+                            }
+                            if (target == null) {
                               setState(() =>
-                                  error = 'Escolha um alvo');
+                                  error = 'Escolha um alvo ou digite o número');
                               return;
                             }
                             if (msg.text.trim().isEmpty) {
@@ -193,8 +224,8 @@ Future<void> showScheduleSheet({
                                 scheduler.schedule(ScheduledJob(
                                     id: '',
                                     driverName:
-                                        picked!.driverName,
-                                    contactId: picked!.id,
+                                        target.driverName,
+                                    contactId: target.id,
                                     text: msg.text.trim(),
                                     tag: tag.text.trim(),
                                     dueAtUnix: due
@@ -204,8 +235,8 @@ Future<void> showScheduleSheet({
                                 StoredSchedule(
                                     id: id,
                                     driverName:
-                                        picked!.driverName,
-                                    contactId: picked!.id,
+                                        target.driverName,
+                                    contactId: target.id,
                                     text: msg.text.trim(),
                                     tag: tag.text.trim(),
                                     dueAtUnix: due

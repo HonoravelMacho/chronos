@@ -31,6 +31,7 @@ class _SyncPanelState extends State<SyncPanel> {
   final _port = TextEditingController();
   final _key = TextEditingController();
   final _instance = TextEditingController();
+  final _owner = TextEditingController();
   final _phone = TextEditingController();
   bool _loaded = false;
   // _editing=true = formulário aberto (troca de chave a qualquer momento,
@@ -83,6 +84,7 @@ class _SyncPanelState extends State<SyncPanel> {
     _port.dispose();
     _key.dispose();
     _instance.dispose();
+    _owner.dispose();
     _phone.dispose();
     super.dispose();
   }
@@ -95,6 +97,7 @@ class _SyncPanelState extends State<SyncPanel> {
     _port.text = '${c.port}';
     _key.text = c.apiKey;
     _instance.text = c.instance.isNotEmpty ? c.instance : 'chronos';
+    _owner.text = c.ownerNumber;
     _editing = _key.text.isEmpty;
   }
 
@@ -113,6 +116,7 @@ class _SyncPanelState extends State<SyncPanel> {
       instance: _instance.text.trim().isEmpty
           ? 'chronos'
           : _instance.text.trim(),
+      ownerNumber: _owner.text.trim(),
     );
   }
 
@@ -387,6 +391,10 @@ class _SyncPanelState extends State<SyncPanel> {
                 _cfgField(
                     _instance, 'INSTÂNCIA', 'chronos',
                     copyable: true),
+                const SizedBox(height: 8),
+                _cfgField(_owner, 'MEU NÚMERO // P/ TESTES',
+                    'seu WhatsApp: 5511999990001',
+                    numeric: true),
                 const SizedBox(height: 10),
                 NeonButton(
                     label: _probing

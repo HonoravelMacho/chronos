@@ -8,11 +8,22 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 class EvolutionConfig {
-  EvolutionConfig({this.baseUrl = '', this.apiKey = '', this.instance = ''});
+  EvolutionConfig(
+      {this.baseUrl = '', this.apiKey = '', this.instance = '',
+      this.ownerNumber = ''});
 
   String baseUrl;
   String apiKey;
   String instance;
+
+  /// Meu número (DDI+DDD+número) — alimenta "mensagem para mim" (testes).
+  String ownerNumber;
+
+  /// Só dígitos, ou '' se inválido/ausente.
+  String get ownerDigits {
+    final d = ownerNumber.replaceAll(RegExp(r'\D'), '');
+    return (d.length >= 10 && d.length <= 15) ? d : '';
+  }
 
   bool get isConfigured => apiKey.isNotEmpty;
 
@@ -49,11 +60,12 @@ class EvolutionConfig {
   }
 
   EvolutionConfig copyWith({String? baseUrl, String? apiKey,
-    String? instance}) {
+    String? instance, String? ownerNumber}) {
     return EvolutionConfig(
       baseUrl: baseUrl ?? this.baseUrl,
       apiKey: apiKey ?? this.apiKey,
       instance: instance ?? this.instance,
+      ownerNumber: ownerNumber ?? this.ownerNumber,
     );
   }
 
@@ -61,12 +73,14 @@ class EvolutionConfig {
         'base_url': baseUrl,
         'api_key': apiKey,
         'instance': instance,
+        'owner_number': ownerNumber,
       };
 
   static EvolutionConfig fromJson(Map<String, dynamic> json) => EvolutionConfig(
         baseUrl: (json['base_url'] as String?) ?? '',
         apiKey: (json['api_key'] as String?) ?? '',
         instance: (json['instance'] as String?) ?? '',
+        ownerNumber: (json['owner_number'] as String?) ?? '',
       );
 
   EvolutionConfig withDefaults() => EvolutionConfig(

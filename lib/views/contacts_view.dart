@@ -64,7 +64,8 @@ class _ContactsTacticalViewState extends State<ContactsTacticalView> {
           for (final d in widget.controller.drivers) d.name
         }.toList();
         if (!_driversContain(drivers, _driver)) _driver = 'todos';
-        final list = widget.controller.contacts.where((c) {
+        // Inclui "★ Mensagem para mim" fixado no topo (quando configurado).
+        final list = widget.controller.visibleContacts().where((c) {
           if (_kind != 'todos' && c.kind != _kind) return false;
           if (_driver != 'todos' && c.driverName != _driver) return false;
           if (q.isEmpty) return true;
@@ -114,7 +115,8 @@ class _ContactsTacticalViewState extends State<ContactsTacticalView> {
                     child: Padding(
                         padding: EdgeInsets.all(20),
                         child: Text(
-                            '// NENHUM ALVO — ajuste o filtro ou sincronize',
+                            '// NENHUM ALVO — ajuste o filtro, sincronize\n'
+                            'ou digite o número direto no + AGENDAR',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                                 color: HudColors.dim, fontSize: 11))))

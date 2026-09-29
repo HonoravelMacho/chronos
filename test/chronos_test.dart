@@ -250,5 +250,14 @@ void main() {
               host: '192.168.1.20', port: 8081),
           'http://192.168.1.20:8081');
     });
+
+    test('ownerNumber: dígitos válidos + roundtrip json', () {
+      final c = EvolutionConfig(ownerNumber: '(11) 99999-0001');
+      expect(c.ownerDigits, '11999990001');
+      final rt = EvolutionConfig.fromJson(c.toJson());
+      expect(rt.ownerNumber, '(11) 99999-0001');
+      expect(rt.ownerDigits, '11999990001');
+      expect(EvolutionConfig(ownerNumber: '123').ownerDigits, '');
+    });
   });
 }

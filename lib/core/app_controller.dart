@@ -118,6 +118,24 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Contatos para a UI: pseudo-alvo "mensagem para mim" fixado no topo
+  /// quando o usuário cadastrou o próprio número (testes rápidos).
+  List<Contact> visibleContacts() {
+    final digits = whatsapp?.config.ownerDigits ?? '';
+    if (digits.isEmpty) return contacts;
+    if (contacts.any((c) => c.id == 'wa:$digits')) return contacts;
+    return [
+      Contact(
+          id: 'wa:$digits',
+          displayName: '★ Mensagem para mim',
+          handle: digits,
+          kind: 'contact',
+          driverName: 'whatsapp',
+          isOnline: true),
+      ...contacts,
+    ];
+  }
+
   List<ScheduledJob> jobsForDay(int y, int m, int d) {
     return scheduler.jobs.where((j) {
       final dt = DateTime.fromMillisecondsSinceEpoch(j.dueAtUnix * 1000);
