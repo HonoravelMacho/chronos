@@ -146,6 +146,89 @@ void main() {
       }
     });
 
+    test('payload de envio é flat {number,text} (não textMessage)', () async {
+      String? body;
+      final client = MockClient((req) async {
+        if (req.url.path.startsWith('/message/sendText/')) {
+          body = req.body;
+          return http.Response(
+              jsonEncode({'key': {'id': 'SHAPE1'}}), 201);
+        }
+        return http.Response('{"message":"Not found"}', 404);
+      });
+      final d = WhatsAppDriver(
+          config: EvolutionConfig(baseUrl: 'http://127.0.0.1:9',
+              apiKey: 'k', instance: 'chronos'),
+          client: client);
+      expect(await d.sendMessage(
+          MessageRequest(contactId: 'wa:5511999990001', text: 'oi')),
+          'SHAPE1');
+      final payload = jsonDecode(body!) as Map<String, dynamic>;
+      expect(payload['number'], '5511999990001');
+      expect(payload['text'], 'oi');
+      expect(payload.containsKey('textMessage'), isFalse);
+    });
+
+    test('contatos agregam chats + grupos + dono automático', () async {
+      final client = mock((kind) {
+        switch (kind) {
+          case 'state':
+            return {
+              'instance': {
+                'instanceName': 'chronos',
+                'state': 'open',
+                'ownerJid': '5511888880001@s.whatsapp.net'
+              }
+            };
+          case 'chats':
+            return [
+              {'remoteJid': '5511999990001@s.whatsapp.net',
+               'pushName': 'Suporte'},
+            ];
+          default:
+            return {};
+        }
+      });
+      final d = WhatsAppDriver(
+          config: EvolutionConfig(baseUrl: 'http://127.0.0.1:9',
+              apiKey: 'k', instance: 'chronos'),
+          client: client);
+      // findContacts/findChats caem no default {} -> _asRows vazio;
+      // injeta grupos via rota dedicada:
+      final client2 = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('fetchAllGroups')) {
+          return http.Response(
+              jsonEncode([
+                {'id': '120363000000@g.us', 'subject': 'Grupo'}
+              ]),
+              200);
+        }
+        if (path.contains('findChats')) {
+          return http.Response(
+              jsonEncode([
+                {'remoteJid': '5511999990001@s.whatsapp.net',
+                 'pushName': 'Suporte'},
+              ]),
+              200);
+        }
+        if (path.contains('findContacts') ||
+            path.contains('/instance/create')) {
+          return http.Response('[]', 200);
+        }
+        return http.Response('{"message":"Not found"}', 404);
+      });
+      final d2 = WhatsAppDriver(
+          config: EvolutionConfig(baseUrl: 'http://127.0.0.1:9',
+              apiKey: 'k', instance: 'chronos'),
+          client: client2);
+      final all = await d2.fetchContacts();
+      expect(all.any((c) => c.kind == 'group'), isTrue);
+      expect(all.any((c) => c.displayName == 'Suporte'), isTrue);
+      expect(await d.isConnected(), isTrue);
+      expect(await d.fetchOwnerNumber(), '5511888880001');
+    });
+
     test('QR com chave errada (401) falha com erro legível', () async {
       final client = MockClient((_) async => http.Response(
           '{"message":"Invalid or missing authentication token"}', 401));

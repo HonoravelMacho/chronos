@@ -180,8 +180,9 @@ EVO_KEY=sua-chave-forte docker compose -f docker/evolution-compose.yml up -d
 ```
 
 Fluxo: `GET /instance/connectionState/{instance}` (`open`→online);
-`POST /message/sendText/{instance}` shape v2.3
-(`{"number","textMessage":{"text"}}`, id de `key.id`);
+`POST /message/sendText/{instance}` shape flat (PowerZap, validado
+contra Evolution real: `{"number","text"}` — `textMessage.*` dá 400),
+id de `key.id`;
 `POST /chat/findChats/{instance}` (`@g.us`→grupo, `@newsletter`→canal,
 filtra `status@broadcast`); `GET /instance/connect` → QR PNG (validado por
 assinatura, auto-refresh a cada 20s no pareamento).

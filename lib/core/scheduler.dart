@@ -63,11 +63,13 @@ class Scheduler extends ChangeNotifier {
   }
 
   String schedule(ScheduledJob job) {
-    final j = job.id.isEmpty
+    var j = job.id.isEmpty
         ? ScheduledJob(
             id: newId(), driverName: job.driverName, contactId: job.contactId,
             text: job.text, tag: job.tag, dueAtUnix: job.dueAtUnix)
         : job;
+    // Sem duplicatas: requeue do mesmo id substitui (offline -> pendente).
+    _jobs.removeWhere((e) => e.id == j.id);
     _jobs.add(j);
     notifyListeners();
     return j.id;

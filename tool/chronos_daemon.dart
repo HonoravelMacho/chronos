@@ -68,6 +68,27 @@ Map<String, dynamic> loadConfig(Directory dir) {
 String toNumber(String contactId) =>
     contactId.startsWith('wa:') ? contactId.substring(3) : contactId;
 
+/// Espelho do isConnected do app: só entrega com socket aberto.
+Future<bool> _isOpen(String baseUrl, String apiKey, String instance,
+    {Duration timeout = const Duration(seconds: 10)}) async {
+  final client = http.Client();
+  try {
+    final res = await client
+        .get(Uri.parse('$baseUrl/instance/connectionState/$instance'),
+            headers: {'Accept': 'application/json', 'apikey': apiKey})
+        .timeout(timeout);
+    if (res.statusCode >= 400) return false;
+    final decoded = jsonDecode(res.body);
+    final info =
+        decoded is Map ? (decoded['instance'] ?? decoded) : {};
+    return '${(info as Map)['state'] ?? ''}'.toLowerCase() == 'open';
+  } catch (_) {
+    return false;
+  } finally {
+    client.close();
+  }
+}
+
 /// Localiza o libsqlite3: junto ao binário (/opt/chronos/lib) ou sistema.
 /// (O `dart compile exe` não embute native assets e o dlopen do Dart é
 /// RTLD_LOCAL — por isso o MiniDb abre o .so explicitamente.)
@@ -101,6 +122,12 @@ Future<int> runOnce({Duration httpTimeout = const Duration(seconds: 15)}) async 
   final dbFile = File(p.join(dir.path, 'chronos.db'));
   if (!dbFile.existsSync()) {
     log('sem chronos.db — nada agendado ainda');
+    return 0;
+  }
+  // PowerZap: sem socket aberto, mantém tudo pendente (não queima).
+  if (!await _isOpen(baseUrl, apiKey, instance)) {
+    log('instância "$instance" sem socket aberto — aguardando conexão, '
+        'pendentes mantidos');
     return 0;
   }
   final db = MiniDb.open(dbFile.path, loadSqlite());

@@ -48,6 +48,7 @@ class _SyncPanelState extends State<SyncPanel> {
   bool _pairing = false;
   Uint8List? _qr;
   bool _qrLoading = false;
+  bool _restarting = false;
   int _qrFailures = 0;
   Timer? _qrTimer;
 
@@ -203,6 +204,29 @@ class _SyncPanelState extends State<SyncPanel> {
     }
   }
 
+  /// Reinicia a sessão travada em 'connecting' e gera QR novo.
+  Future<void> _restartSession() async {
+    final wa = _wa;
+    if (wa == null) return;
+    setState(() {
+      _restarting = true;
+      _error = null;
+    });
+    try {
+      await wa.restartInstance();
+      await Future<void>.delayed(const Duration(seconds: 2));
+      await wa.connect();
+      setState(() {
+        _qr = null;
+        _qrFailures = 0;
+      });
+      await _fetchQr();
+    } on DriverException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _restarting = false);
+    }
+  }
   /// Gera código de pareamento (vincular com número, sem câmera).
   Future<void> _requestCode() async {
     final wa = _wa;
@@ -365,6 +389,16 @@ class _SyncPanelState extends State<SyncPanel> {
                           accent: HudColors.matrix,
                           icon: Icons.refresh)),
                 ]),
+                const SizedBox(height: 8),
+                NeonButton(
+                    label: _restarting
+                        ? 'REINICIANDO...'
+                        : 'REINICIAR SESSÃO',
+                    accent: HudColors.amber,
+                    filled: false,
+                    icon: Icons.restart_alt,
+                    onPressed:
+                        _restarting ? null : _restartSession),
                 const SizedBox(height: 8),
                 NeonButton(
                     label: 'TROCAR CHAVE ›',

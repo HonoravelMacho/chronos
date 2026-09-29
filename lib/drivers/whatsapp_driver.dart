@@ -1,6 +1,8 @@
-// CHRONOS — driver WhatsApp via Evolution API v2.3 (port fiel do C++ validado
-// no E2E: GET connectionState, POST sendText {number,textMessage.text},
-// POST findChats, GET connect -> QR PNG).
+// CHRONOS — driver WhatsApp via Evolution API v2.3 (estrutura funcional
+// espelhada do PowerZap, case de sucesso: payload flat {number,text},
+// pre-checagem de conexão, owner automático, contatos 3 fontes).
+// GET connectionState, POST sendText flat, POST findChats/findContacts,
+// GET /group/fetchAllGroups, GET connect -> QR PNG.
 // SPDX-License-Identifier: Apache-2.0
 
 import 'dart:async';
@@ -124,17 +126,117 @@ class WhatsAppDriver extends NetworkDriver {
         detail: 'desconectado', accountId: _config.instance);
   }
 
-  static String toEvolutionNumber(String contactId) =>
-      contactId.startsWith('wa:') ? contactId.substring(3) : contactId;
+  static String toEvolutionNumber(String contactId) {
+    var raw = contactId.startsWith('wa:') ? contactId.substring(3) : contactId;
+    raw = raw.trim();
+    // Preserva JID de grupo; número comum vira só dígitos (PowerZap).
+    if (raw.contains('@g.us') || raw.contains('@s.whatsapp.net')) return raw;
+    if (raw.contains('@')) return raw.split('@').first.split(':').first;
+    return raw.replaceAll(RegExp(r'\D'), '');
+  }
+
+  /// Instância está com socket aberto? (PowerZap: só envia se open;
+  /// se não, mantém pendente em vez de queimar para erro.)
+  Future<bool> isConnected() async {
+    try {
+      final j = await _json('GET', '/instance/connectionState/${_config.instance}');
+      final info = j['instance'] ?? j;
+      return '${(info as Map)['state'] ?? ''}'.toLowerCase() == 'open';
+    } on DriverException {
+      return false;
+    }
+  }
+
+  DateTime? _lastConnCheck;
+  bool _lastConnOk = false;
+
+  /// Versão com cache de 30s (o tick do scheduler chama a cada segundo).
+  Future<bool> ensureOnlineCached() async {
+    final now = DateTime.now();
+    if (_lastConnCheck != null &&
+        now.difference(_lastConnCheck!) < const Duration(seconds: 30)) {
+      return _lastConnOk;
+    }
+    _lastConnOk = await isConnected();
+    _lastConnCheck = now;
+    return _lastConnOk;
+  }
+
+  /// Reinicia a sessão travada em 'connecting' (PUT /instance/restart).
+  Future<void> restartInstance() async {
+    await _json('PUT', '/instance/restart/${_config.instance}');
+  }
+
+  /// Apaga a instância para recriar do zero (resolve 403/QR ilegível).
+  Future<void> deleteInstance() async {
+    await _json('DELETE', '/instance/delete/${_config.instance}');
+  }
+
+  /// Descobre o próprio número (para "mensagem para mim" automática):
+  /// connectionState -> fetchInstances (ownerJid) — sem digitar nada.
+  Future<String?> fetchOwnerNumber() async {
+    String? pick(Map? m) {
+      if (m == null) return null;
+      for (final k in [
+        'ownerJid', 'owner', 'wuid', 'number', 'phoneNumber', 'phone'
+      ]) {
+        final v = m[k];
+        if (v is! String || v.trim().isEmpty) continue;
+        final s = v.trim();
+        final num = s.contains('@')
+            ? s.split('@').first.split(':').first.trim()
+            : s.replaceAll(RegExp(r'\D'), '');
+        if (num.length >= 8 && num.length <= 15) return num;
+      }
+      final nested = m['instance'];
+      if (nested is Map) return pick(nested);
+      return null;
+    }
+
+    try {
+      final st = await _json(
+          'GET', '/instance/connectionState/${_config.instance}');
+      final o = pick(st);
+      if (o != null) return o;
+    } on DriverException {
+      return null;
+    }
+    try {
+      final res = await _client
+          .get(
+              Uri.parse(
+                  '$_base/instance/fetchInstances?instanceName=${_config.instance}'),
+              headers: _headers)
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode >= 400) return null;
+      final decoded = jsonDecode(res.body);
+      final rows = decoded is List
+          ? decoded
+          : decoded is Map
+              ? [decoded]
+              : [];
+      for (final r in rows) {
+        if (r is! Map) continue;
+        final inst = r['instance'];
+        final o = pick(inst is Map ? inst : r);
+        if (o != null) return o;
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
 
   @override
   Future<String> sendMessage(MessageRequest req) async {
     if (req.contactId.isEmpty || req.text.isEmpty) {
       throw DriverException('contactId/text vazios');
     }
+    // Payload FLAT (PowerZap, validado contra Evolution real):
+    // {"number","text"} — textMessage.* dá 400 "requires property text".
     final j = await _json('POST', '/message/sendText/${_config.instance}', {
       'number': toEvolutionNumber(req.contactId),
-      'textMessage': {'text': req.text},
+      'text': req.text,
     });
     final id = ((j['key'] as Map?)?['id'] as String?) ?? '';
     // Nunca vazio em sucesso (quebra o scheduler).
@@ -150,30 +252,118 @@ class WhatsAppDriver extends NetworkDriver {
     return 'wa-sched-${DateTime.now().microsecondsSinceEpoch}';
   }
 
+  /// Parse tolerante de uma linha de contato (PowerZap: várias chaves
+  /// de nome, fallback phoneNumber, filtro broadcast/newsletter, LID).
+  Contact? _parseRow(Map item) {
+    var jid = '${item['remoteJid'] ?? item['id'] ?? item['jid'] ?? ''}';
+    if (jid.isEmpty || !jid.contains('@')) {
+      final phone =
+          '${item['phoneNumber'] ?? item['number'] ?? item['phone'] ?? ''}';
+      final digits = phone.replaceAll(RegExp(r'\D'), '');
+      if (digits.isEmpty) return null;
+      jid = '$digits@s.whatsapp.net';
+    }
+    if (jid == 'status@broadcast' ||
+        jid.contains('@broadcast') ||
+        jid.contains('status@') ||
+        jid.contains('@newsletter')) {
+      return null;
+    }
+    String kind = 'contact';
+    if (jid.endsWith('@g.us')) {
+      kind = 'group';
+    } else if (jid.contains('@newsletter')) {
+      kind = 'channel';
+    }
+    var name = '';
+    for (final k in [
+      'pushName', 'name', 'subject', 'pushname', 'chatName', 'fullName',
+      'contactName', 'notify'
+    ]) {
+      final v = item[k];
+      if (v is String && v.trim().isNotEmpty) {
+        name = v.trim();
+        break;
+      }
+    }
+    if (name.isEmpty) name = jid;
+    final number = kind == 'group'
+        ? jid
+        : jid.split('@').first.split(':').first.split('_').first;
+    if (number.isEmpty) return null;
+    return Contact(id: 'wa:$jid', displayName: name, handle: jid,
+        kind: kind, driverName: 'whatsapp');
+  }
+
+  List<Map> _asRows(dynamic decoded) {
+    if (decoded is List) return decoded.whereType<Map>().toList();
+    if (decoded is Map) {
+      for (final k in ['contacts', 'chats', 'groups', 'data', 'records']) {
+        final v = decoded[k];
+        if (v is List) return v.whereType<Map>().toList();
+        if (v is Map) return v.values.whereType<Map>().toList();
+      }
+      if (decoded.values.every((v) => v is Map)) {
+        return decoded.values.whereType<Map>().toList();
+      }
+    }
+    return [];
+  }
+
+  /// Contatos agregados de 3 fontes com fallbacks (PowerZap find_all):
+  /// findContacts (2 corpos) + findChats (2 corpos) + fetchAllGroups.
+  /// Robusto a falha parcial: uma fonte vazia não zera a lista.
   @override
   Future<List<Contact>> fetchContacts() async {
-    final decoded = await _jsonRaw('POST', '/chat/findChats/${_config.instance}', {});
-    if (decoded is! List) {
-      throw DriverException('findChats: resposta inesperada (não-array)');
-    }
-    final out = <Contact>[];
-    for (final item in decoded) {
-      if (item is! Map) continue;
-      final jid = (item['remoteJid'] as String?) ?? '';
-      if (jid.isEmpty || jid == 'status@broadcast') continue;
-      String kind = 'contact';
-      if (jid.endsWith('@g.us')) {
-        kind = 'group';
-      } else if (jid.contains('@newsletter')) {
-        kind = 'channel';
+    final merged = <String, Contact>{};
+
+    Future<void> collect(
+        String method, String path, Map<String, dynamic> body) async {
+      try {
+        final decoded = await _jsonRaw(method, path, body);
+        for (final row in _asRows(decoded)) {
+          final c = _parseRow(row);
+          if (c == null) continue;
+          final prev = merged[c.id];
+          if (prev == null ||
+              (prev.displayName == prev.handle && c.displayName != c.handle)) {
+            merged[c.id] = c;
+          }
+        }
+      } on DriverException {
+        // fonte falhou: as outras ainda alimentam a lista
       }
-      var name = (item['pushName'] as String?) ?? '';
-      if (name.isEmpty) name = (item['name'] as String?) ?? '';
-      if (name.isEmpty) name = jid;
-      out.add(Contact(id: 'wa:$jid', displayName: name, handle: jid,
-          kind: kind, driverName: 'whatsapp'));
     }
-    return out;
+
+    await collect('POST', '/chat/findContacts/${_config.instance}', {'where': {}});
+    await collect('POST', '/chat/findContacts/${_config.instance}', {});
+    await collect('POST', '/chat/findChats/${_config.instance}', {});
+    await collect('POST', '/chat/findChats/${_config.instance}',
+        {'where': {}, 'orderBy': {'createdAt': 'desc'}});
+    try {
+      final decoded = await _jsonRaw(
+          'GET', '/group/fetchAllGroups/${_config.instance}?getParticipants=false', {});
+      for (final Map row in _asRows(decoded)) {
+        final jid = '${row['id'] ?? row['remoteJid'] ?? row['jid'] ?? ''}';
+        if (!jid.endsWith('@g.us')) continue;
+        final name =
+            '${row['subject'] ?? row['name'] ?? ''}'.trim();
+        merged['wa:$jid'] = Contact(
+            id: 'wa:$jid',
+            displayName: name.isEmpty ? jid : name,
+            handle: jid,
+            kind: 'group',
+            driverName: 'whatsapp');
+      }
+    } on DriverException {
+      // sem grupos: segue com contatos/chats
+    }
+
+    if (merged.isEmpty) {
+      throw DriverException(
+          'nenhum contato retornado (instância sincronizou? QR pareado?)');
+    }
+    return merged.values.toList();
   }
 
   Future<dynamic> _jsonRaw(String method, String path,
@@ -181,8 +371,13 @@ class WhatsAppDriver extends NetworkDriver {
     http.Response res;
     final uri = Uri.parse('$_base$path');
     try {
-      res = await _client.post(uri, headers: _headers, body: jsonEncode(body))
-          .timeout(const Duration(seconds: 10));
+      if (method == 'GET') {
+        res = await _client.get(uri, headers: _headers)
+            .timeout(const Duration(seconds: 10));
+      } else {
+        res = await _client.post(uri, headers: _headers, body: jsonEncode(body))
+            .timeout(const Duration(seconds: 10));
+      }
     } on SocketException catch (e) {
       throw DriverException(
           'Evolution inacessível em $_base (${e.message}) — $_dockerHint');

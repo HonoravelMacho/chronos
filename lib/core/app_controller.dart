@@ -23,6 +23,9 @@ class AppController extends ChangeNotifier {
   Contact? selectedContact;
   Map<String, String> tags = {};
 
+  /// Próprio número descoberto na Evolution (ownerJid) — sem digitar.
+  String ownNumberAuto = '';
+
   WhatsAppDriver? get whatsapp {
     for (final d in drivers) {
       if (d is WhatsAppDriver) return d;
@@ -68,6 +71,16 @@ class AppController extends ChangeNotifier {
       }
       for (final d in drivers) {
         if (d.name == job.driverName) {
+          // PowerZap: sem socket aberto, mantém PENDENTE (requeue) em vez
+          // de queimar para erro — entrega quando reconectar.
+          if (d is WhatsAppDriver && !await d.ensureOnlineCached()) {
+            scheduler.schedule(job);
+            await db.saveSchedule(StoredSchedule(
+                id: job.id, driverName: job.driverName,
+                contactId: job.contactId, text: job.text, tag: job.tag,
+                dueAtUnix: job.dueAtUnix));
+            break;
+          }
           try {
             final id = await d.sendMessage(MessageRequest(
                 contactId: job.contactId, text: job.text, tag: job.tag));
@@ -135,6 +148,20 @@ class AppController extends ChangeNotifier {
     selectedContact ??= contacts.isNotEmpty ? contacts.first : null;
     contactsLoading = false;
     notifyListeners();
+    // Dono automático (PowerZap fetch_owner_number): connectionState /
+    // fetchInstances -> ownerJid. Best-effort, não bloqueia a lista.
+    final wa = whatsapp;
+    if (wa != null) {
+      try {
+        final owner = await wa.fetchOwnerNumber();
+        if (owner != null && owner.isNotEmpty && owner != ownNumberAuto) {
+          ownNumberAuto = owner;
+          notifyListeners();
+        }
+      } catch (_) {
+        // mantém manual
+      }
+    }
   }
 
   void selectContact(Contact c) {
@@ -142,10 +169,12 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Contatos para a UI: pseudo-alvo "mensagem para mim" fixado no topo
-  /// quando o usuário cadastrou o próprio número (testes rápidos).
+  /// Contatos para a UI: pseudo-alvo "mensagem para mim" fixado no topo.
+  /// Dono automático (ownerJid) tem prioridade; manual é o fallback.
   List<Contact> visibleContacts() {
-    final digits = whatsapp?.config.ownerDigits ?? '';
+    final digits = ownNumberAuto.isNotEmpty
+        ? ownNumberAuto
+        : (whatsapp?.config.ownerDigits ?? '');
     if (digits.isEmpty) return contacts;
     if (contacts.any((c) => c.id == 'wa:$digits')) return contacts;
     return [
