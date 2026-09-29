@@ -95,6 +95,7 @@ set(CHRONOS_SOURCES
     src/ui/HudComponents.cpp
     src/ui/CalendarView.cpp
     src/ui/ContactSelector.cpp
+    src/ui/SyncPanel.cpp
     src/ui/TagManager.cpp
     src/database/Database.cpp
 )
@@ -113,6 +114,7 @@ set(CHRONOS_HEADERS
     src/ui/LayoutManager.hpp
     src/ui/CalendarView.hpp
     src/ui/ContactSelector.hpp
+    src/ui/SyncPanel.hpp
     src/ui/TagManager.hpp
     src/database/Database.hpp
 )

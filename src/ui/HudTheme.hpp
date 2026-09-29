@@ -41,6 +41,19 @@ inline constexpr int   kFontSizeMono  = 14;
 
 // Escala de UI por DPI: em celular (2400px+) fontes de 14px viram microtexto.
 // Base 720p => 1.0; telefones chegam a ~2.5. Desktop 720p fica inalterado.
+// Zoom do usuário (pinch no celular, Ctrl+roda no desktop). Multiplica a
+// escala de DPI. Persistido só em memória nesta versão.
+inline float& UserZoomRef() {
+    static float z = 1.0f;
+    return z;
+}
+inline float UserZoom() { return UserZoomRef(); }
+inline void SetUserZoom(float z) {
+    if (z < 0.6f) z = 0.6f;
+    if (z > 3.0f) z = 3.0f;
+    UserZoomRef() = z;
+}
+
 #if CHRONOS_HAS_RAYLIB
 inline float UiScale() {
     int h = GetScreenHeight();
@@ -48,6 +61,8 @@ inline float UiScale() {
     float s = (float)h / 720.0f;
     if (s < 1.0f) s = 1.0f;
     if (s > 2.5f) s = 2.5f;
+    s *= UserZoomRef();
+    if (s > 3.5f) s = 3.5f;
     return s;
 }
 #else

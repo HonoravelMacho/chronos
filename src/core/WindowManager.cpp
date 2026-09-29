@@ -11,8 +11,11 @@ bool WindowManager::Init(const char* title, int width, int height) {
     width_ = width;
     height_ = height;
 #if CHRONOS_HAS_RAYLIB
+    // Sem RESIZABLE o WM (Linux) desabilita o botão maximizar.
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
     InitWindow(width_, height_, title);
     SetTargetFPS(60);
+    SetExitKey(KEY_NULL);  // ESC não fecha (evita perda em mobile/teclado)
     hasGui_ = true;
     return IsWindowReady();
 #else

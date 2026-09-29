@@ -49,6 +49,7 @@ check "chats-3-kinds"      chats --expect '^count=3$'
 check "chats-contact-kind" chats --expect 'wa:5511999990001@s.whatsapp.net\|Suporte\|contact'
 check "chats-group-kind"   chats --expect 'wa:120363000000@g.us\|Grupo CHRONOS\|group'
 check "chats-channel-kind" chats --expect 'channel$'
+check "qr-png-bytes"       qr --expect '^qr_bytes=[1-9][0-9]*$'
 
 if mock_only; then
   # API key errada -> 401 mapeado para erro legível.

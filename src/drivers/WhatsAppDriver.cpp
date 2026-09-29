@@ -8,10 +8,13 @@
 
 #include "WhatsAppDriver.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <sstream>
 
 #include "core/DriverRegistry.hpp"
+#include "core/LocalConfig.hpp"
+#include "core/Base64.hpp"
 
 #if CHRONOS_HAS_CURL
 #include <curl/curl.h>  // no Windows puxa <windows.h> → macros SendMessage/DrawText
@@ -51,11 +54,27 @@ WhatsAppDriver::WhatsAppDriver(EvolutionConfig cfg) : cfg_(std::move(cfg)) {
         cfg_.baseUrl = EnvOr("EVO_BASE_URL", "http://localhost:8080");
     if (cfg_.apiKey.empty()) cfg_.apiKey = EnvOr("EVO_API_KEY", "");
     if (cfg_.instance.empty()) cfg_.instance = EnvOr("EVO_INSTANCE", "chronos");
+    // Arquivo local (~/.config/chronos/evolution.conf) completa o que o
+    // ambiente não definiu — é o que a tela de Sync grava.
+    if (cfg_.apiKey.empty() || cfg_.baseUrl == "http://localhost:8080") {
+        const auto kv = LoadConfig(ConfigPath("evolution.conf"));
+        auto it = kv.find("base_url");
+        if (it != kv.end() && !it->second.empty()) cfg_.baseUrl = it->second;
+        it = kv.find("api_key");
+        if (it != kv.end() && !it->second.empty()) cfg_.apiKey = it->second;
+        it = kv.find("instance");
+        if (it != kv.end() && !it->second.empty()) cfg_.instance = it->second;
+    }
 }
 
 void WhatsAppDriver::SetConfig(EvolutionConfig cfg) {
     std::lock_guard<std::mutex> lk(m_);
     cfg_ = std::move(cfg);
+}
+
+EvolutionConfig WhatsAppDriver::Config() const {
+    std::lock_guard<std::mutex> lk(m_);
+    return cfg_;
 }
 
 std::string WhatsAppDriver::ToEvolutionNumber(const std::string& contactId) {
@@ -284,6 +303,48 @@ std::vector<Contact> WhatsAppDriver::FetchContacts(std::string& outError) {
 DriverStatus WhatsAppDriver::GetStatus() const {
     std::lock_guard<std::mutex> lk(m_);
     return status_;
+}
+
+bool WhatsAppDriver::FetchQrPng(std::vector<unsigned char>& outPng,
+                                std::string& outError) {
+    // GET /instance/connect/{instance} -> {"base64":"data:image/png;base64,...",...}
+    std::string body;
+    long http = 0;
+    if (!GetJson("/instance/connect/" + cfg_.instance, body, http, outError)) return false;
+#if CHRONOS_HAS_JSON
+    try {
+        const auto j = nlohmann::json::parse(body);
+        std::string b64 = j.value("base64", "");
+        if (b64.empty()) {
+            // Sem QR (ex.: só pairingCode) — informa em vez de falhar mudo.
+            outError = "QR indisponível nesta resposta (verifique a instância)";
+            return false;
+        }
+        // Remove o prefixo data:...;base64, (letras do prefixo corromperiam o decode).
+        const size_t comma = b64.find(',');
+        if (b64.rfind("data:", 0) == 0 && comma != std::string::npos)
+            b64 = b64.substr(comma + 1);
+        if (!Base64Decode(b64, outPng)) {
+            outError = "base64 do QR inválido";
+            return false;
+        }
+        // Sanidade mínima de PNG (assinatura de 8 bytes).
+        static const unsigned char kSig[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+        if (outPng.size() < 8 ||
+            !std::equal(std::begin(kSig), std::end(kSig), outPng.begin())) {
+            outError = "QR não veio em PNG";
+            return false;
+        }
+        return true;
+    } catch (const std::exception& e) {
+        outError = std::string("QR: JSON inválido: ") + e.what();
+        return false;
+    }
+#else
+    (void)outPng;
+    outError = "JSON off";
+    return false;
+#endif
 }
 
 static DriverRegistrar g_regWhats("whatsapp",

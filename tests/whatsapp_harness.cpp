@@ -8,6 +8,7 @@
 
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include "drivers/WhatsAppDriver.hpp"
 
@@ -45,8 +46,18 @@ int CmdSend(chronos::WhatsAppDriver& d, int argc, char** argv) {
     return 0;
 }
 
-int CmdChats(chronos::WhatsAppDriver& d) {
+int CmdQr(chronos::WhatsAppDriver& d) {
+    std::vector<unsigned char> png;
     std::string err;
+    if (!d.FetchQrPng(png, err)) {
+        std::printf("error=%s\n", err.c_str());
+        return 1;
+    }
+    std::printf("qr_bytes=%zu\n", png.size());
+    return 0;
+}
+
+int CmdChats(chronos::WhatsAppDriver& d) {    std::string err;
     const auto chats = d.FetchContacts(err);
     if (!err.empty()) {
         std::printf("error=%s\n", err.c_str());
@@ -75,6 +86,7 @@ int main(int argc, char** argv) {
     if (cmd == "connect") rc = CmdConnect(d);
     else if (cmd == "send") rc = CmdSend(d, argc, argv);
     else if (cmd == "chats") rc = CmdChats(d);
+    else if (cmd == "qr") rc = CmdQr(d);
     else std::printf("error=comando desconhecido\n");
 #if CHRONOS_HAS_CURL
     curl_global_cleanup();

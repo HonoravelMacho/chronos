@@ -4,15 +4,23 @@
 
 #if CHRONOS_HAS_RAYLIB
 #include <raylib.h>
+
+#include <cmath>  // sqrtf (pinch)
 #endif
 
 namespace chronos::Hud {
 
-Pointer PollPointer() {
-    Pointer p;
+namespace {
+// Snapshot único por frame — todos os widgets leem o mesmo estado.
+Pointer g_ptr;
+float g_pinchRatio = 1.0f;
+} // namespace
+
+void BeginFrameInput() {
 #if CHRONOS_HAS_RAYLIB
-    const int touches = GetTouchPointCount();
-    if (touches > 0) {
+    Pointer p;
+    p.touches = GetTouchPointCount();
+    if (p.touches > 0) {
         const Vector2 t = GetTouchPosition(0);
         p.x = t.x;
         p.y = t.y;
@@ -28,16 +36,55 @@ Pointer PollPointer() {
     if (!was) {
         p.dx = 0;
         p.dy = 0;
+        p.pressX = p.x;  // âncora: onde este press começou
+        p.pressY = p.y;
     } else {
         p.dx = p.x - lx;
         p.dy = p.y - ly;
+        p.pressX = g_ptr.pressX;
+        p.pressY = g_ptr.pressY;
     }
-    p.clicked = was && !p.down;
+    // Release com 2+ dedos = pinch, nunca tap (evita clique fantasma no zoom).
+    p.clicked = was && !p.down && p.touches < 2 && g_ptr.touches < 2;
     lx = p.x;
     ly = p.y;
     was = p.down;
+    g_ptr = p;
+
+    // Pinch: razão entre distâncias dos 2 primeiros dedos.
+    static float lastD = 0;
+    g_pinchRatio = 1.0f;
+    if (p.touches >= 2) {
+        const Vector2 a = GetTouchPosition(0);
+        const Vector2 b = GetTouchPosition(1);
+        const float dx = a.x - b.x, dy = a.y - b.y;
+        const float d = sqrtf(dx * dx + dy * dy);
+        if (lastD > 0 && d > 0) g_pinchRatio = d / lastD;
+        lastD = d;
+    } else {
+        lastD = 0;
+    }
+#else
+    g_ptr = Pointer{};
+    g_pinchRatio = 1.0f;
 #endif
-    return p;
+}
+
+Pointer PollPointer() { return g_ptr; }
+
+bool TapIn(const Pointer& p, float x, float y, float w, float h) {
+    if (!p.clicked) return false;
+    const bool rel = (p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h);
+    const bool prs =
+        (p.pressX >= x && p.pressX <= x + w && p.pressY >= y && p.pressY <= y + h);
+    return rel && prs;  // press e release no mesmo widget = 1 tap, sem duplicar
+}
+
+float ConsumePinch() {
+    const float r = g_pinchRatio;
+    g_pinchRatio = 1.0f;
+    if (r < 0.5f || r > 2.0f) return 1.0f;  // ruído/outlier
+    return r;
 }
 
 float MouseWheel() {
@@ -146,6 +193,50 @@ void DrawScanlines(int screenW, int screenH, int frame) {
 #endif
 }
 
+bool DrawTextBox(float x, float y, float w, float h, const std::string& id,
+                 std::string& text, const std::string& placeholder) {
+#if CHRONOS_HAS_RAYLIB
+    using namespace HudTheme;
+    const float S = UiScale();
+    if (h < TouchTarget()) {
+        const float grow = TouchTarget() - h;
+        y -= grow / 2;
+        h = TouchTarget();
+    }
+    static std::string active;
+    const Pointer p = PollPointer();
+    const bool inside = Hit(p.x, p.y, x, y, w, h);
+    if (p.clicked) active = inside ? id : "";
+    const bool focused = (active == id);
+    if (focused) {
+        int ch = GetCharPressed();
+        while (ch > 0) {
+            if (ch >= 32 && ch < 127 && text.size() < 160) text += (char)ch;
+            ch = GetCharPressed();
+        }
+        if ((IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE)) &&
+            !text.empty())
+            text.pop_back();
+    }
+    DrawRectangle((int)x, (int)y, (int)w, (int)h, Bg());
+    DrawRectangleLinesEx({x, y, w, h}, 2.0f, focused ? Neon() : PanelEdge());
+    std::string shown = text.empty() ? placeholder : text;
+    Color tc = text.empty() ? TextDim() : Text();
+    // Cursor piscante quando focado.
+    if (focused && ((int)(GetTime() * 2) % 2 == 0)) shown += "_";
+    // Corta pela esquerda se estourar (mantém o fim visível).
+    while (!shown.empty() &&
+           MeasureText(shown.c_str(), ScaledFont(kFontSizeMono)) > (int)(w - 16 * S))
+        shown.erase(shown.begin());
+    DrawText(shown.c_str(), (int)(x + 8 * S),
+             (int)(y + h / 2 - ScaledFont(kFontSizeMono) / 2), ScaledFont(kFontSizeMono),
+             tc);
+    return focused && (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER));
+#else
+    (void)x; (void)y; (void)w; (void)h; (void)id; (void)text; (void)placeholder;
+    return false;
+#endif
+}
 bool DrawButton(float x, float y, float w, float h, const std::string& label) {
 #if CHRONOS_HAS_RAYLIB
     using namespace HudTheme;
@@ -163,7 +254,7 @@ bool DrawButton(float x, float y, float w, float h, const std::string& label) {
     const bool hover = Hit(p.x, p.y, x, y, w, h);
     if (hover) DrawRectangleLinesEx({x, y, w, h}, 2.0f, Neon());
     if (hover && p.down) DrawRectangle((int)x, (int)y, (int)w, (int)h, {0, 229, 255, 40});
-    return hover && p.clicked;  // dispara no release = tap no celular, clique no desktop
+    return TapIn(p, x, y, w, h);  // press+release no botão = 1 clique, sem duplicar
 #else
     (void)x; (void)y; (void)w; (void)h; (void)label;
     return false;

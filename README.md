@@ -235,7 +235,13 @@ Fluxo: `Connect()` lê `GET /instance/connectionState/{instance}`
 (`{"number","textMessage":{"text"}}`, id real extraído de `key.id`, HTTP ≥ 400
 vira erro legível); `FetchContacts()` → `POST /chat/findChats/{instance}`
 (mapeia `@g.us` → grupo, `@newsletter` → canal, filtra `status@broadcast`).
-Escaneie o QR em `GET /instance/connect/{instance}` uma única vez.
+
+**Sincronizar pelo app** (sem terminal): abra o painel **SYNC WHATSAPP**,
+preencha servidor + API KEY + instância e toque **SALVAR + CONECTAR**.
+Os dados ficam em `~/.config/chronos/evolution.conf` (também aceita
+`EVO_BASE_URL`/`EVO_API_KEY`/`EVO_INSTANCE`). Com a chave válida mas sessão
+aberta, o app baixa o **QR code** (`GET /instance/connect`) e exibe para
+escaneamento em WhatsApp > Aparelhos — toque **ATUALIZAR QR** se expirar.
 
 > Requer Evolution API **v2.3+** (evolution-foundation). Alvos v2.1 (`text` plano)
 > não são suportados.
@@ -265,10 +271,12 @@ ctest --test-dir build --output-on-failure   # inclui e2e_whatsapp_mock
   scanlines CRT e tipografia mono tática.
 - **Responsiva:** `LayoutManager::ComputeLayout()` — 3 colunas no desktop
   (disparo · calendário · contatos) e pilha vertical no mobile.
-- **Mobile/touch:** sem mouse, o dedo é o ponteiro (`Hud::PollPointer`):
-  tap = clique, arrastar na lista rola, swipe horizontal no calendário troca
-  de mês, tap no dia/contato seleciona. Fontes e alvos de toque escalam com
-  o DPI (`HudTheme::UiScale`, mínimo 44–48px).
+- **Mobile/touch:** sem mouse, o dedo é o ponteiro (`Hud::PollPointer`,
+  snapshot único por frame — sem clique duplicado):
+  tap = clique (press e release no mesmo widget), arrastar na lista rola,
+  swipe horizontal no calendário troca de mês, tap no dia/contato seleciona.
+  **Pinch dá zoom** na UI (0,6x–3x); no desktop, Ctrl+roda faz o mesmo.
+  Fontes e alvos de toque escalam com o DPI (`HudTheme::UiScale`, mínimo 44–48px).
 - **Calendário HUD:** grade mensal, dots de agendamentos, `NextMonth()/PrevMonth()`.
 - **Contatos:** matriz unificada (contatos/grupos/canais/comunidades) + busca `>_` instantânea.
 - **Etiquetas:** CRUD persistido (`tags`), cores por objetivo.

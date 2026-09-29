@@ -55,6 +55,16 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/__mock/sent"):
             return self._send(200, SENT)
         parts = self.path.strip("/").split("/")
+        # GET /instance/connect/{instance} -> QR base64 (PNG 1x1 válido).
+        if len(parts) == 3 and parts[0] == "instance" and parts[1] == "connect":
+            if not self._need_auth():
+                return
+            if parts[2] != "chronos":
+                return self._send(404, {"message": "Instance not found"})
+            tiny = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+                    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+            return self._send(200, {"base64": "data:image/png;base64," + tiny,
+                                    "code": "1234-5678", "count": 1})
         # GET /instance/connectionState/{instance}
         if len(parts) == 3 and parts[0] == "instance" and parts[1] == "connectionState":
             if not self._need_auth():

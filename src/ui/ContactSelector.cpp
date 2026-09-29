@@ -62,11 +62,12 @@ void ContactSelector::Draw(float x, float y, float w, float h) {
     const bool inList =
         (p.x >= x && p.x <= x + w && p.y >= listY && p.y <= listY + listH);
 
-    // Roda do mouse rola; no touch, arrastar com o dedo rola.
+    // Roda do mouse rola; no touch, arrastar com 1 dedo rola (2 dedos = pinch).
     scroll_ -= Hud::MouseWheel() * 40 * S;
-    if (p.down && inList && (p.dy > 2 || p.dy < -2)) dragging_ = true;
+    const bool oneFinger = p.touches <= 1;
+    if (p.down && oneFinger && inList && (p.dy > 2 || p.dy < -2)) dragging_ = true;
     if (!p.down) dragging_ = false;
-    if (dragging_ && inList) scroll_ -= p.dy;
+    if (dragging_ && oneFinger && inList) scroll_ -= p.dy;
 
     const float totalH = (float)filtered_.size() * (rowH + 4 * S);
     const float maxScroll = totalH > listH ? totalH - listH : 0;
@@ -82,18 +83,21 @@ void ContactSelector::Draw(float x, float y, float w, float h) {
             DrawRectangle((int)(x + 12 * S), (int)ry, (int)(w - 24 * S), (int)rowH,
                           sel ? Neon() : Panel());
             const Color fg = sel ? Bg() : Text();
-            DrawText(c.displayName.c_str(), (int)(x + 20 * S), (int)(ry + 6 * S),
+            // Chip de cor por tipo: contato=verde, grupo=âmbar, canal/comunidade=ciano.
+            Color kindC = TextDim();
+            if (c.kind == "contact") kindC = Ok();
+            else if (c.kind == "group") kindC = Amber();
+            else if (c.kind == "channel" || c.kind == "community") kindC = Neon();
+            DrawCircle((int)(x + 26 * S), (int)(ry + rowH / 2), 4 * S, kindC);
+            DrawText(c.displayName.c_str(), (int)(x + 36 * S), (int)(ry + 6 * S),
                      ScaledFont(kFontSizeMono), fg);
-            DrawText((c.kind + " :: " + c.driverName).c_str(), (int)(x + 20 * S),
+            DrawText((c.kind + " :: " + c.driverName).c_str(), (int)(x + 36 * S),
                      (int)(ry + 6 * S + ScaledFont(kFontSizeMono) + 4), ScaledFont(12),
                      sel ? Bg() : TextDim());
             if (c.isOnline)
                 DrawCircle((int)(x + w - 24 * S), (int)(ry + rowH / 2), 5 * S, Ok());
-            // Tap/click na linha seleciona (só se não estava arrastando).
-            if (p.clicked && !dragging_ && p.x >= x + 12 * S && p.x <= x + w - 12 * S &&
-                p.y >= ry && p.y <= ry + rowH) {
-                selected_ = (int)i;
-            }
+            // Tap na linha seleciona (press+release na linha; arrasto não conta).
+            if (Hud::TapIn(p, x + 12 * S, ry, w - 24 * S, rowH)) selected_ = (int)i;
         }
         ry += rowH + 4 * S;
     }

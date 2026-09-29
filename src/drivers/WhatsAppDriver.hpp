@@ -9,8 +9,10 @@
 //   POST /chat/findChats/{instance}            -> [ {remoteJid,pushName,...} ]
 // Auth: header `apikey: <EVO_API_KEY>`.
 
+#include <cstdint>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "drivers/INetworkDriver.hpp"
 
@@ -37,6 +39,11 @@ public:
     DriverStatus GetStatus() const override;
 
     void SetConfig(EvolutionConfig cfg);
+    EvolutionConfig Config() const;
+
+    /// Baixa o QR de pareamento (GET /instance/connect) e devolve o PNG
+    /// decodificado. False + outError em falha (sem sessão, sem base64...).
+    bool FetchQrPng(std::vector<unsigned char>& outPng, std::string& outError);
 
 private:
     // HTTP+JSON genérico. outHttpStatus = código HTTP (0 = sem resposta).

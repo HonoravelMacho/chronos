@@ -5,10 +5,12 @@
 #include <cstring>
 
 #include "core/EventBus.hpp"
+#include "drivers/WhatsAppDriver.hpp"
 #include "ui/CalendarView.hpp"
 #include "ui/ContactSelector.hpp"
 #include "ui/HudComponents.hpp"
 #include "ui/HudTheme.hpp"
+#include "ui/SyncPanel.hpp"
 #include "ui/TagManager.hpp"
 
 #if CHRONOS_HAS_RAYLIB
@@ -71,9 +73,27 @@ int App::Run(int argc, char** argv) {
 
 #if CHRONOS_HAS_RAYLIB
     CalendarView calendar(&scheduler_);
+    SyncPanel sync;
+    // Driver WhatsApp (se registrado) alimenta o painel de sincronização.
+    WhatsAppDriver* wa = nullptr;
+    for (auto& d : drivers_)
+        if (d->Name() == "whatsapp") wa = dynamic_cast<WhatsAppDriver*>(d.get());
     int frames = 0;
     while (!window_.ShouldClose()) {
         window_.BeginFrame();
+        Hud::BeginFrameInput();  // snapshot único de mouse+touch do frame
+        // Zoom: pinch (mobile) ou Ctrl+roda (desktop).
+        {
+            const float pinch = Hud::ConsumePinch();
+            if (pinch != 1.0f) HudTheme::SetUserZoom(HudTheme::UserZoom() * pinch);
+#if CHRONOS_HAS_RAYLIB
+            if (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) {
+                const float w = GetMouseWheelMove();
+                if (w > 0) HudTheme::SetUserZoom(HudTheme::UserZoom() * 1.1f);
+                if (w < 0) HudTheme::SetUserZoom(HudTheme::UserZoom() * 0.9f);
+            }
+#endif
+        }
         const bool vertical =
             (window_.CurrentOrientation() == Orientation::Vertical);
 
@@ -84,17 +104,24 @@ int App::Run(int argc, char** argv) {
         const float W = (float)window_.Width();
         const float H = (float)window_.Height();
         if (vertical) {
-            // Layout mobile: abas empilhadas.
-            const float dispH = 220, calH = 240;
+            // Layout mobile: alturas proporcionais (px fixo estourava com DPI alto).
+            const float rest = H - top;
+            const float dispH = rest * 0.13f, syncH = rest * 0.27f, calH = rest * 0.28f;
             Hud::DrawPanel(8, top, W - 16, dispH, "DISPARO");
             Hud::DrawStatusLeds(24, top + 56, drivers_);
-            calendar.Draw(8, top + dispH + 8, W - 16, calH);
-            contacts.Draw(8, top + dispH + calH + 16, W - 16,
-                          H - (top + dispH + calH + 24));
+            float sy = top + dispH + 8;
+            sync.Draw(8, sy, W - 16, syncH, wa);
+            sy += syncH + 8;
+            calendar.Draw(8, sy, W - 16, calH);
+            sy += calH + 8;
+            contacts.Draw(8, sy, W - 16, H - sy - 8);
         } else {
-            // Layout desktop horizontal: 3 colunas.
-            Hud::DrawPanel(8, top, W * 0.28f - 12, H - top - 8, "DISPARO");
-            Hud::DrawStatusLeds(24, top + 56, drivers_);
+            // Layout desktop: coluna esquerda = status + sync empilhados.
+            const float colX = 8, colW = W * 0.28f - 12, colH = H - top - 8;
+            const float stH = 200;
+            Hud::DrawPanel(colX, top, colW, stH, "DISPARO");
+            Hud::DrawStatusLeds(colX + 16, top + 56, drivers_);
+            sync.Draw(colX, top + stH + 8, colW, colH - stH - 8, wa);
             calendar.Draw(W * 0.28f + 4, top, W * 0.42f - 8, H - top - 8);
             contacts.Draw(W * 0.70f + 4, top, W * 0.30f - 12, H - top - 8);
         }
