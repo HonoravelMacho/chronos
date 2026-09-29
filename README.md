@@ -180,8 +180,7 @@ cd android && gradle assembleDebug   # APK universal em app/build/outputs/apk/de
 
 O wrapper `android/` compila o target `chronos_native` (mesmos fontes do
 desktop + `android_native_app_glue`) via `externalNativeBuild` e empacota um
-**`.apk` universal debug** (`arm64-v8a` + `armeabi-v7a`, assinado com chave de
-debug, instalável direto). Para APK release assinado, adicione
+**`.apk` debug** (`arm64-v8a`, assinado com chave de debug, instalável direto). Para APK release assinado, adicione
 `signingConfigs` com os secrets `ANDROID_KEYSTORE_*`.
 
 O workflow `release.yml` gera o **`.apk` universal** a cada tag `v*`.
