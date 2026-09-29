@@ -238,6 +238,20 @@ bool DrawTextBox(float x, float y, float w, float h, const std::string& id,
     if (p.clicked) active = inside ? id : "";
     const bool focused = (active == id);
     if (focused) {
+        // Colar: Ctrl+V, Shift+Insert ou botão direito (a key costuma ser longa).
+        const bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+        const bool pasteKey =
+            (ctrl && IsKeyPressed(KEY_V)) ||
+            (IsKeyDown(KEY_LEFT_SHIFT) && IsKeyPressed(KEY_INSERT));
+        const bool pasteClick =
+            IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) && inside;
+        if (pasteKey || pasteClick) {
+            const char* clip = GetClipboardText();
+            if (clip) {
+                for (const char* c = clip; *c && text.size() < 160; ++c)
+                    if (*c >= 32 && *c < 127) text += *c;
+            }
+        }
         int ch = GetCharPressed();
         while (ch > 0) {
             if (ch >= 32 && ch < 127 && text.size() < 160) text += (char)ch;

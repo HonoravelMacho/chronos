@@ -164,7 +164,7 @@ void SyncPanel::Draw(float x, float y, float w, float h, WhatsAppDriver* wa) {
         Hud::DrawTextBox(cx, ly, cw, rowH, "evo_url", baseUrl_, "http://localhost:8080");
         ly += rowH + gap;
         label("API KEY");
-        Hud::DrawTextBox(cx, ly, cw, rowH, "evo_key", apiKey_, "EVO_API_KEY");
+        Hud::DrawTextBox(cx, ly, cw, rowH, "evo_key", apiKey_, "cole a chave (Ctrl+V)");
         ly += rowH + gap;
         label("INSTANCIA");
         Hud::DrawTextBox(cx, ly, cw, rowH, "evo_inst", instance_, "chronos");
