@@ -82,7 +82,13 @@ class _HomeShellState extends State<HomeShell> {
                       children: [
                         Expanded(child: body),
                         const SizedBox(height: 8),
-                        _bottomBar(),
+                        // SafeArea: menu tático sempre acima dos botões
+                        // do sistema (edge-to-edge, sem sobreposição).
+                        SafeArea(
+                            top: false,
+                            left: false,
+                            right: false,
+                            child: _bottomBar()),
                       ],
                     )
                   : Row(

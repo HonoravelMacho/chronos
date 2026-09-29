@@ -1,12 +1,15 @@
 // CHRONOS — Dashboard tático (status, pendências, próximos disparos).
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:io' show File, Platform, Process;
+
 import 'package:flutter/material.dart';
 
 import '../core/app_controller.dart';
 import '../core/scheduler.dart';
 import '../ui/hud_panel.dart';
 import '../ui/hud_theme.dart';
+import '../ui/neon_button.dart';
 import 'sync_panel.dart';
 
 class DashboardView extends StatelessWidget {
@@ -45,6 +48,8 @@ class DashboardView extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               SyncPanel(controller: controller),
+              const SizedBox(height: 10),
+              const DaemonCard(),
               const SizedBox(height: 10),
               HudPanel(
                 title: 'PRÓXIMAS TRANSMISSÕES [${next.length}]',
@@ -154,6 +159,122 @@ class DashboardView extends StatelessWidget {
                 size: 16, color: HudColors.danger),
             onPressed: () => controller.cancelSchedule(j.id),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Card 2º PLANO (daemon): entrega agendados com o app fechado (Linux).
+/// Quem dispara? Quem estiver acordado: app aberto (qualquer aparelho)
+/// ou o daemon no PC. Sem nenhum dos dois, a mensagem espera.
+class DaemonCard extends StatefulWidget {
+  const DaemonCard({super.key});
+
+  @override
+  State<DaemonCard> createState() => _DaemonCardState();
+}
+
+class _DaemonCardState extends State<DaemonCard> {
+  String? _status;
+  bool _busy = false;
+
+  /// Binário instalado ao lado do app (/opt/chronos/chronos_daemon).
+  String _daemonExe() {
+    try {
+      final dir = File(Platform.resolvedExecutable).parent;
+      final f = File('${dir.path}/chronos_daemon');
+      if (f.existsSync()) return f.path;
+    } catch (_) {}
+    return 'chronos_daemon'; // PATH
+  }
+
+  Future<void> _run(List<String> args) async {
+    setState(() {
+      _busy = true;
+      _status = null;
+    });
+    try {
+      final r = await Process.run(_daemonExe(), args);
+      final out = '${r.stdout}${r.stderr}'.trim();
+      if (mounted) {
+        setState(() => _status =
+            out.isEmpty ? '(sem saída, code ${r.exitCode})' : out);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _status = 'falhou: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!Platform.isLinux) {
+      return const HudPanel(
+        title: 'ENTREGA EM 2º PLANO',
+        accent: HudColors.dim,
+        child: Text(
+            'Neste aparelho, quem entrega é o APP ABERTO na hora '
+            'agendada. No PC Linux, ative o daemon para entregar '
+            'mesmo com o app fechado.',
+            style: TextStyle(color: HudColors.dim, fontSize: 11)),
+      );
+    }
+    return HudPanel(
+      title: 'ENTREGA EM 2º PLANO // DAEMON',
+      accent: HudColors.amber,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+              'Com o daemon ATIVO, o PC entrega sozinho com o app '
+              'fechado (service systemd --user, a cada 30s).',
+              style: TextStyle(color: HudColors.dim, fontSize: 11)),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+                child: NeonButton(
+                    label: 'ATIVAR',
+                    accent: HudColors.matrix,
+                    icon: Icons.play_arrow,
+                    filled: false,
+                    onPressed: _busy
+                        ? null
+                        : () => _run(['--install']))),
+            const SizedBox(width: 8),
+            Expanded(
+                child: NeonButton(
+                    label: 'STATUS',
+                    accent: HudColors.neon,
+                    filled: false,
+                    icon: Icons.monitor_heart,
+                    onPressed:
+                        _busy ? null : () => _run(['--status']))),
+            const SizedBox(width: 8),
+            Expanded(
+                child: NeonButton(
+                    label: 'DESATIVAR',
+                    accent: HudColors.danger,
+                    filled: false,
+                    onPressed: _busy
+                        ? null
+                        : () => _run(['--uninstall']))),
+          ]),
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: LinearProgressIndicator(
+                  color: HudColors.amber,
+                  backgroundColor: Colors.transparent),
+            ),
+          if (_status != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(_status!,
+                  style: const TextStyle(
+                      color: HudColors.text, fontSize: 11)),
+            ),
         ],
       ),
     );

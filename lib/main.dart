@@ -1,6 +1,7 @@
 // CHRONOS — Cross-platform Hub for Routed Outgoing Network Open Source.
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'core/app_controller.dart';
 import 'ui/hud_background.dart';
@@ -10,6 +11,15 @@ import 'views/home_shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Tela cheia real no Android: desenha por baixo das barras do sistema
+  // (edge-to-edge) com barras transparentes — sem botões sobrepostos.
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
   final controller = AppController();
   String? bootError;
   try {

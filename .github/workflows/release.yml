@@ -79,6 +79,10 @@ jobs:
           flutter build linux --release \
             --build-name="$TAG" --build-number="${GITHUB_RUN_NUMBER}"
           ls -la build/linux/x64/release/bundle/
+      - name: Build daemon CLI (entrega com app fechado)
+        run: |
+          dart compile exe tool/chronos_daemon.dart -o build/chronos_daemon
+          ./build/chronos_daemon --help
       - name: Package (.tar.gz + .deb + .rpm)
         run: |
           set -eux
@@ -89,6 +93,9 @@ jobs:
           rm -rf dist "$STAGE"
           mkdir -p "$STAGE/opt/chronos" dist
           cp -r "$BUNDLE/." "$STAGE/opt/chronos/"
+          # Daemon CLI headless (usa o libsqlite3.so do próprio bundle).
+          cp build/chronos_daemon "$STAGE/opt/chronos/"
+          chmod +x "$STAGE/opt/chronos/chronos_daemon"
           # .tar.gz — bundle cru + README/LICENSE
           cp LICENSE README.md "$STAGE/opt/chronos/" || true
           tar -czf "dist/chronos-${TAG}-linux-x86_64.tar.gz" -C "$STAGE" opt

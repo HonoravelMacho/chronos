@@ -191,6 +191,25 @@ assinatura, auto-refresh a cada 20s no pareamento).
 - Criptografia em repouso (SQLCipher) = roadmap; hoje o isolamento é por
   armazenamento 100% local, sem nuvem.
 
+### Quem dispara? App aberto ou daemon (2º plano)
+
+O agendador em memória só dispara com o app **aberto** — vale para
+qualquer aparelho (PC ou celular): quem estiver acordado na hora, entrega.
+Para o PC entregar **com o app fechado**, ative o daemon Linux
+(`tool/chronos_daemon.dart`, headless, polls a cada 30s no mesmo banco):
+
+```bash
+/opt/chronos/chronos_daemon --install   # service systemd --user + ativa
+/opt/chronos/chronos_daemon --status    # confere se está ATIVO
+/opt/chronos/chronos_daemon --once      # 1 varredura manual (debug)
+/opt/chronos/chronos_daemon --uninstall # para + desativa
+```
+
+Ou pelo app: aba **DASH** → card **ENTREGA EM 2º PLANO** → **ATIVAR**.
+No Android não há daemon (sistema não permite): mantenha o app aberto
+na hora agendada — o app é edge-to-edge (tela cheia, sem botões do
+sistema sobre o menu).
+
 ---
 
 ## 5. Compilação local
@@ -248,6 +267,7 @@ A cada tag `v*` (`git tag v0.5.0 && git push origin v0.5.0`), o workflow
 - [x] Scheduler cron local + SQLite + CRUD calendário/tags
 - [x] WhatsApp/Evolution real (status, envio `key.id`, contatos, QR)
 - [x] CI `release.yml` Flutter (APK, DEB, RPM, TGZ, EXE+ZIP)
+- [x] Daemon Linux (entrega com app fechado) + APK edge-to-edge
 - [ ] Auth Telegram QR real (TDLib `ClientManager` completo)
 - [ ] Evolution WebSocket + sync de chats em tempo real
 - [ ] Editor de campanha (disparo em massa com rate-limit e preview)
