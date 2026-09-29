@@ -1,25 +1,36 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
 build/
-cmake-build-*/
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-*.o
-*.a
-*.so
-*.exe
+ios/Pods/
+android/.gradle/
+android/local.properties
+local.properties
+
+# Artefatos de release (gerados pela CI, nunca commitados)
 *.apk
+*.aab
 *.deb
 *.rpm
 *.tar.gz
 *.zip
-compile_commands.json
-CTestTestfile.cmake
-_CPack_Packages/
+*.exe
+dist/
+
+# Banco local / segredos
 *.db
-local.properties
-sdk/
-ndk/
+*.db-journal
+
+# IDE / OS
 .idea/
 .vscode/
 .DS_Store
+*.iml
+
+# CMake legado (linux/windows runners do Flutter geram build próprio)
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
