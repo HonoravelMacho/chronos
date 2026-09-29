@@ -4,9 +4,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'dart:async';
-import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/driver_registry.dart';
 import '../core/evolution_config.dart';
@@ -32,6 +33,12 @@ class _SyncPanelState extends State<SyncPanel> {
   final _instance = TextEditingController();
   final _phone = TextEditingController();
   bool _loaded = false;
+  // _editing=true = formulário aberto (troca de chave a qualquer momento,
+  // com valores preservados — nada é apagado). _editing=false = fluxo
+  // de status/QR com a config atual.
+  bool _editing = true;
+  bool _hideKey = true;
+  List<String> _lanIps = [];
   String? _error;
   String? _probe;
   bool _probeOk = false;
@@ -44,6 +51,30 @@ class _SyncPanelState extends State<SyncPanel> {
   Timer? _qrTimer;
 
   WhatsAppDriver? get _wa => widget.controller.whatsapp;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLanIps();
+  }
+
+  /// IPs LAN deste aparelho — o que o CELULAR deve usar como HOST quando
+  /// a Evolution roda neste PC (a sessão é a mesma, sem 2º QR).
+  Future<void> _loadLanIps() async {
+    try {
+      final ifs = await NetworkInterface.list(
+          includeLoopback: false, type: InternetAddressType.IPv4);
+      final ips = <String>[];
+      for (final i in ifs) {
+        for (final a in i.addresses) {
+          if (!a.isLoopback) ips.add(a.address);
+        }
+      }
+      if (mounted) setState(() => _lanIps = ips);
+    } catch (_) {
+      // sem rede / sem permissão: card some sozinho
+    }
+  }
 
   @override
   void dispose() {
@@ -64,7 +95,11 @@ class _SyncPanelState extends State<SyncPanel> {
     _port.text = '${c.port}';
     _key.text = c.apiKey;
     _instance.text = c.instance.isNotEmpty ? c.instance : 'chronos';
+    _editing = _key.text.isEmpty;
   }
+
+  /// Volta ao formulário MANTENDO tudo digitado (troca de chave livre).
+  void _editConfig() => setState(() => _editing = true);
 
   EvolutionConfig _formConfig() {
     final prev = _wa?.config ?? EvolutionConfig();
@@ -119,6 +154,7 @@ class _SyncPanelState extends State<SyncPanel> {
     await saveEvolutionConfig(cfg);
     wa.setConfig(cfg);
     setState(() {
+      _editing = false;
       _error = null;
       _qr = null;
       _qrFailures = 0;
@@ -246,13 +282,16 @@ class _SyncPanelState extends State<SyncPanel> {
                   const SizedBox(width: 8),
                   Expanded(
                       child: NeonButton(
-                          label: 'TROCAR CONTA',
-                          accent: HudColors.dim,
+                          label: 'TROCAR CHAVE',
+                          accent: HudColors.amber,
                           filled: false,
-                          onPressed: () =>
-                              setState(() => _key.clear()))),
+                          icon: Icons.key,
+                          onPressed: _editConfig)),
                 ]),
-              ] else if (_key.text.isNotEmpty &&
+                const SizedBox(height: 10),
+                _linkPhoneCard(),
+              ] else if (!_editing &&
+                  _key.text.isNotEmpty &&
                   (st.state == 'connecting' ||
                       st.state == 'error')) ...[
                 _qrSteps(),
@@ -324,26 +363,30 @@ class _SyncPanelState extends State<SyncPanel> {
                 ]),
                 const SizedBox(height: 8),
                 NeonButton(
-                    label: 'EDITAR CONFIG',
-                    accent: HudColors.dim,
+                    label: 'TROCAR CHAVE ›',
+                    accent: HudColors.amber,
                     filled: false,
-                    onPressed: () =>
-                        setState(() => _key.clear())),
+                    icon: Icons.key,
+                    onPressed: _editConfig),
                 const SizedBox(height: 10),
                 _pairingSection(),
               ] else ...[
                 _apiKeyHelp(),
                 const SizedBox(height: 8),
                 _cfgField(_host, 'SERVIDOR // HOST',
-                    'IP do PC (ex.: 192.168.1.20)'),
+                    'IP do PC (ex.: 192.168.1.20)',
+                    copyable: true),
                 const SizedBox(height: 8),
                 _cfgField(_port, 'PORTA', '8080',
                     numeric: true),
                 const SizedBox(height: 8),
-                _cfgField(_key, 'API KEY', 'cole a chave aqui'),
+                _cfgField(_key, 'API KEY (troque quando quiser)',
+                    'cole a chave aqui',
+                    copyable: true, secret: true),
                 const SizedBox(height: 8),
                 _cfgField(
-                    _instance, 'INSTÂNCIA', 'chronos'),
+                    _instance, 'INSTÂNCIA', 'chronos',
+                    copyable: true),
                 const SizedBox(height: 10),
                 NeonButton(
                     label: _probing
@@ -370,6 +413,8 @@ class _SyncPanelState extends State<SyncPanel> {
                     accent: HudColors.matrix,
                     icon: Icons.bolt,
                     onPressed: _saveAndConnect),
+                const SizedBox(height: 10),
+                _linkPhoneCard(),
               ],
               if (_error != null)
                 Padding(
@@ -410,7 +455,8 @@ class _SyncPanelState extends State<SyncPanel> {
               'A chave é VOCÊ quem inventa ao subir a Evolution no PC:\n'
               '  -e AUTHENTICATION_API_KEY=\'sua-chave\'\n'
               'Depois digite A MESMA chave no campo API KEY abaixo.\n'
-              'Se outra pessoa hospeda a Evolution, peça a chave a ela.',
+              'Pode trocar quando quiser: TROCAR CHAVE › TESTAR › '
+              'SALVAR + CONECTAR. Se outra pessoa hospeda, peça a chave.',
               style: TextStyle(color: HudColors.text, fontSize: 11)),
         ],
       ),
@@ -529,8 +575,7 @@ class _SyncPanelState extends State<SyncPanel> {
                     label: 'EDITAR CONFIG',
                     accent: HudColors.amber,
                     filled: false,
-                    onPressed: () =>
-                        setState(() => _key.clear()))),
+                    onPressed: _editConfig)),
           ]),
         ],
       ),
@@ -574,9 +619,44 @@ class _SyncPanelState extends State<SyncPanel> {
     );
   }
 
+  /// Card "sua ideia do QR, sem câmera": vincula UMA vez (em qualquer
+  /// tela) e o outro aparelho usa os MESMOS 4 valores — sem 2º QR, porque
+  /// a sessão do WhatsApp é uma só na instância.
+  Widget _linkPhoneCard() {
+    if (_lanIps.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: HudColors.matrix.withValues(alpha: 0.06),
+        border: Border.all(
+            color: HudColors.matrix.withValues(alpha: 0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('CELULAR NO MESMO WI-FI? USE ESTES VALORES',
+              style: TextStyle(
+                  color: HudColors.matrix,
+                  fontSize: 10,
+                  letterSpacing: 1.4,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          Text(
+              'IP(s) deste aparelho: ${_lanIps.join(' · ')}\n'
+              'No celular: HOST = um desses IPs + MESMA porta, '
+              'MESMA key e MESMA instância. Sem escanear de novo: '
+              'a sessão do WhatsApp é a mesma.',
+              style:
+                  const TextStyle(color: HudColors.text, fontSize: 11)),
+        ],
+      ),
+    );
+  }
+
   Widget _cfgField(
       TextEditingController c, String label, String hint,
-      {bool numeric = false}) {
+      {bool numeric = false, bool copyable = false, bool secret = false}) {
+    final hidden = secret && _hideKey;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -593,21 +673,58 @@ class _SyncPanelState extends State<SyncPanel> {
               border: Border.all(color: HudColors.edge)),
           padding: const EdgeInsets.symmetric(
               horizontal: 10, vertical: 2),
-          child: TextField(
-            controller: c,
-            keyboardType:
-                numeric ? TextInputType.number : null,
-            style:
-                const TextStyle(color: HudColors.text, fontSize: 13),
-            decoration: InputDecoration(
-              hintText: hint,
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              filled: false,
-              hintStyle:
-                  const TextStyle(color: HudColors.dim),
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: c,
+                  keyboardType:
+                      numeric ? TextInputType.number : null,
+                  obscureText: hidden,
+                  style: const TextStyle(
+                      color: HudColors.text, fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: hint,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    filled: false,
+                    hintStyle:
+                        const TextStyle(color: HudColors.dim),
+                  ),
+                ),
+              ),
+              if (secret)
+                IconButton(
+                  tooltip: _hideKey ? 'Mostrar chave' : 'Ocultar chave',
+                  icon: Icon(
+                      _hideKey
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                      size: 18,
+                      color: HudColors.dim),
+                  onPressed: () =>
+                      setState(() => _hideKey = !_hideKey),
+                ),
+              if (copyable)
+                IconButton(
+                  tooltip: 'Copiar',
+                  icon: const Icon(Icons.copy,
+                      size: 18, color: HudColors.dim),
+                  onPressed: () async {
+                    await Clipboard.setData(
+                        ClipboardData(text: c.text));
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('copiado!',
+                                  style: TextStyle(
+                                      color: HudColors.text)),
+                              duration: Duration(seconds: 1)));
+                    }
+                  },
+                ),
+            ],
           ),
         ),
       ],
