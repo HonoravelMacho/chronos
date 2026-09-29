@@ -38,6 +38,8 @@ class _SyncPanelState extends State<SyncPanel> {
   bool _probing = false;
   bool _pairing = false;
   Uint8List? _qr;
+  bool _qrLoading = false;
+  int _qrFailures = 0;
   Timer? _qrTimer;
 
   WhatsAppDriver? get _wa => widget.controller.whatsapp;
@@ -112,25 +114,48 @@ class _SyncPanelState extends State<SyncPanel> {
     final cfg = _formConfig();
     await saveEvolutionConfig(cfg);
     wa.setConfig(cfg);
-    setState(() => _error = null);
+    setState(() {
+      _error = null;
+      _qr = null;
+      _qrFailures = 0;
+    });
     await wa.connect();
     await widget.controller.refreshContacts();
+    // Dispara a 1ª busca do QR em qualquer estado não-online (o timer
+    // automático só cobre 'connecting'; em 'error'/401 nada buscava e a
+    // tela ficava no loading infinito).
+    if (mounted && wa.status.state != 'online') {
+      unawaited(_fetchQr());
+    }
     setState(() {});
   }
 
   Future<void> _fetchQr() async {
     final wa = _wa;
-    if (wa == null) return;
+    if (wa == null || _qrLoading) return;
+    setState(() => _qrLoading = true);
     try {
       final bytes = await wa.fetchQrPng();
       if (mounted) {
         setState(() {
           _qr = bytes;
           _error = null;
+          _qrFailures = 0;
         });
       }
     } on DriverException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) {
+        setState(() {
+          _qrFailures++;
+          // 401 = chave errada: mensagem direta em vez de "tentando...".
+          _error = e.message.contains('401')
+              ? 'API KEY REJEITADA (401): a chave digitada NÃO é a do '
+                'container. Volte em EDITAR CONFIG e confira.'
+              : e.message;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _qrLoading = false);
     }
   }
 
@@ -157,7 +182,11 @@ class _SyncPanelState extends State<SyncPanel> {
     if (connecting && _qrTimer == null) {
       unawaited(_fetchQr());
       _qrTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-        if (mounted && (_wa?.status.state == 'connecting')) {
+        // Para após 6 falhas (~2min): sem isso, chave errada gerava
+        // loop eterno de tentativas em segundo plano.
+        if (mounted &&
+            (_wa?.status.state == 'connecting') &&
+            _qrFailures < 6) {
           unawaited(_fetchQr());
         }
       });
@@ -244,12 +273,23 @@ class _SyncPanelState extends State<SyncPanel> {
                       ),
                     ),
                   )
+                else if (_qrFailures > 0 && !_qrLoading)
+                  _qrFailureCard()
                 else
                   const Center(
                     child: Padding(
                       padding: EdgeInsets.all(16),
-                      child: CircularProgressIndicator(
-                          color: HudColors.neon),
+                      child: Column(
+                        children: [
+                          CircularProgressIndicator(
+                              color: HudColors.neon),
+                          SizedBox(height: 8),
+                          Text('buscando QR na Evolution...',
+                              style: TextStyle(
+                                  color: HudColors.dim,
+                                  fontSize: 11)),
+                        ],
+                      ),
                     ),
                   ),
                 const SizedBox(height: 6),
@@ -417,6 +457,53 @@ class _SyncPanelState extends State<SyncPanel> {
                         letterSpacing: 4)),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  /// Cartão de falha do QR: explica em vez de girar para sempre.
+  Widget _qrFailureCard() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: HudColors.danger.withValues(alpha: 0.08),
+        border: Border.all(
+            color: HudColors.danger.withValues(alpha: 0.6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('QR NÃO GERADO // VERIFIQUE',
+              style: TextStyle(
+                  color: HudColors.danger,
+                  fontSize: 11,
+                  letterSpacing: 1.4,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          const Text(
+              '• API KEY errada (erro 401)? Confira a chave do container\n'
+              '• Evolution fora do ar? Rode TESTAR CONEXÃO na config\n'
+              '• Alternativa: vincule com CÓDIGO logo abaixo',
+              style: TextStyle(color: HudColors.text, fontSize: 11)),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+                child: NeonButton(
+                    label: 'TENTAR DE NOVO',
+                    accent: HudColors.neon,
+                    filled: false,
+                    icon: Icons.refresh,
+                    onPressed: _fetchQr)),
+            const SizedBox(width: 8),
+            Expanded(
+                child: NeonButton(
+                    label: 'EDITAR CONFIG',
+                    accent: HudColors.amber,
+                    filled: false,
+                    onPressed: () =>
+                        setState(() => _key.clear()))),
+          ]),
         ],
       ),
     );

@@ -138,6 +138,21 @@ void main() {
       }
     });
 
+    test('QR com chave errada (401) falha com erro legível', () async {
+      final client = MockClient((_) async => http.Response(
+          '{"message":"Invalid or missing authentication token"}', 401));
+      final d = WhatsAppDriver(
+          config: EvolutionConfig(baseUrl: 'http://127.0.0.1:9',
+              apiKey: 'teste-errada', instance: 'chronos'),
+          client: client);
+      try {
+        await d.fetchQrPng();
+        fail('deveria lançar DriverException');
+      } on DriverException catch (e) {
+        expect(e.message, contains('401'));
+      }
+    });
+
     test('401 vira DriverException legível', () async {
       final client = MockClient((_) async => http.Response(
           '{"message":"Invalid or missing authentication token"}', 401));

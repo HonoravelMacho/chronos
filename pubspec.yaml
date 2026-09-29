@@ -1,7 +1,7 @@
 name: chronos_hub
 description: "CHRONOS — Cross-platform Hub for Routed Outgoing Network Open Source (Flutter Sci-Fi HUD)."
 publish_to: 'none'
-version: 0.5.2+8
+version: 0.5.3+9
 
 environment:
   sdk: ^3.12.2
