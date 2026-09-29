@@ -28,13 +28,16 @@ jobs:
             rpm fakeroot
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCHRONOS_BUILD_TESTS=ON
 
       - name: Build
         run: cmake --build build --parallel
 
       - name: Smoke
         run: ./build/chronos --smoke
+
+      - name: E2E WhatsApp/Evolution (mock)
+        run: ctest --test-dir build --output-on-failure
 
       - name: Package (CPack → DEB/RPM/TGZ)
         working-directory: build

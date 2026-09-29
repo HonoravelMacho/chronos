@@ -1,7 +1,13 @@
 #pragma once
 // SPDX-License-Identifier: Apache-2.0
-// Driver WhatsApp via Evolution API local (HTTP/WebSocket leve).
+// Driver WhatsApp via Evolution API local (HTTP leve).
 // Usa libcurl quando disponível; senão compila em modo stub.
+//
+// Alvo: Evolution API v2.3+ (evolution-foundation):
+//   GET  /instance/connectionState/{instance}  -> {"instance":{"state":"open"|...}}
+//   POST /message/sendText/{instance}          -> {"number","textMessage":{"text"}}
+//   POST /chat/findChats/{instance}            -> [ {remoteJid,pushName,...} ]
+// Auth: header `apikey: <EVO_API_KEY>`.
 
 #include <mutex>
 #include <string>
@@ -11,9 +17,11 @@
 namespace chronos {
 
 struct EvolutionConfig {
-    std::string baseUrl = "http://localhost:8080";  // Evolution API local
-    std::string apiKey;      // EVO_API_KEY
-    std::string instance;    // nome da instância
+    // Campos vazios = lê do ambiente (EVO_BASE_URL/EVO_API_KEY/EVO_INSTANCE)
+    // com fallback para http://localhost:8080 / "" / "chronos".
+    std::string baseUrl;
+    std::string apiKey;
+    std::string instance;
 };
 
 class WhatsAppDriver : public INetworkDriver {
@@ -31,9 +39,19 @@ public:
     void SetConfig(EvolutionConfig cfg);
 
 private:
-    // POST JSON mínimo na Evolution API (stub retorna payload p/ teste).
+    // HTTP+JSON genérico. outHttpStatus = código HTTP (0 = sem resposta).
+    // Retorna false em erro de transporte OU HTTP >= 400.
+    bool HttpJson(const std::string& method, const std::string& path,
+                  const std::string& body, std::string& outBody,
+                  long& outHttpStatus, std::string& outError);
     bool PostJson(const std::string& path, const std::string& json,
-                  std::string& outBody, std::string& outError);
+                  std::string& outBody, long& outHttpStatus,
+                  std::string& outError);
+    bool GetJson(const std::string& path, std::string& outBody,
+                 long& outHttpStatus, std::string& outError);
+
+    // "wa:5511999990001" -> "5511999990001"; "wa:x@g.us" -> "x@g.us".
+    static std::string ToEvolutionNumber(const std::string& contactId);
 
     mutable std::mutex m_;
     EvolutionConfig cfg_;

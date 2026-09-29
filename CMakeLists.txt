@@ -45,6 +45,13 @@ if(CHRONOS_ENABLE_GUI)
     endif()
 endif()
 
+# --- nlohmann/json (parsing das respostas Evolution API / TDLib) ---
+FetchContent_Declare(
+    nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 # --- libcurl (WhatsApp / Evolution API) ---
 if(CHRONOS_ENABLE_CURL)
     find_package(CURL QUIET)
@@ -182,6 +189,10 @@ target_link_libraries(${tgt} PRIVATE Threads::Threads)
 if(UNIX AND NOT APPLE AND NOT ANDROID)
     target_link_libraries(${tgt} PRIVATE dl m)
 endif()
+
+# nlohmann/json é header-only e sempre disponível (FetchContent acima).
+target_link_libraries(${tgt} PRIVATE nlohmann_json::nlohmann_json)
+target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_JSON=1)
 endfunction()
 
 chronos_apply_deps(chronos)
@@ -213,8 +224,18 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
 endif()
 include(CPack)
 
-# ── Smoke test opcional ──────────────────────────────────────────────────────
+# ── Testes (harness E2E WhatsApp/Evolution contra mock) ─────────────────────
 if(CHRONOS_BUILD_TESTS)
     enable_testing()
     add_test(NAME chronos_runs COMMAND chronos --smoke)
+    # Harness exercita o driver sem a HUD (sem raylib/main.cpp).
+    add_executable(wa_harness
+        tests/whatsapp_harness.cpp
+        src/drivers/WhatsAppDriver.cpp
+        src/core/DriverRegistry.cpp
+    )
+    chronos_apply_deps(wa_harness)
+    add_test(NAME e2e_whatsapp_mock
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e_whatsapp.sh
+                     $<TARGET_FILE:wa_harness> 18080)
 endif()

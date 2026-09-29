@@ -228,10 +228,26 @@ export EVO_INSTANCE=chronos
 ./build/chronos
 ```
 
-Fluxo: `Connect()` checa `/instance/connectionState/{instance}`;
-`SendMessage()` → `POST /message/sendText/{instance}`;
-agendamentos ficam no `Scheduler` local (a Evolution não agenda nativamente).
+Fluxo: `Connect()` lê `GET /instance/connectionState/{instance}`
+(`open` → online, `connecting` → pareando, `close` → erro com instrução de QR);
+`SendMessage()` → `POST /message/sendText/{instance}` no shape v2.3
+(`{"number","textMessage":{"text"}}`, id real extraído de `key.id`, HTTP ≥ 400
+vira erro legível); `FetchContacts()` → `POST /chat/findChats/{instance}`
+(mapeia `@g.us` → grupo, `@newsletter` → canal, filtra `status@broadcast`).
 Escaneie o QR em `GET /instance/connect/{instance}` uma única vez.
+
+> Requer Evolution API **v2.3+** (evolution-foundation). Alvos v2.1 (`text` plano)
+> não são suportados.
+
+**Teste E2E** (mock fiel em `tests/`, 9 cenários: online, envio com `key.id`
+real, validação, contatos/kinds, 401, instância `close`):
+
+```bash
+cmake -S . -B build -DCHRONOS_BUILD_TESTS=ON && cmake --build build
+ctest --test-dir build --output-on-failure   # inclui e2e_whatsapp_mock
+# Contra Evolution REAL: EVO_LIVE=1 EVO_BASE_URL=... EVO_API_KEY=... \
+#   tests/e2e_whatsapp.sh ./build/wa_harness
+```
 
 ### Banco local encriptado
 
