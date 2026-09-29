@@ -102,6 +102,10 @@ jobs:
       - name: Install Android packages
         run: |
           echo "SDK=$ANDROID_SDK_ROOT"
+          # Sem setup-android@v3, o cmdline-tools não entra no PATH sozinho.
+          CMDTOOLS=$(ls -d "$ANDROID_SDK_ROOT"/cmdline-tools/* | sort -V | tail -1)
+          export PATH="$CMDTOOLS/bin:$PATH"
+          echo "$CMDTOOLS/bin" >> $GITHUB_PATH
           yes | sdkmanager --licenses > /dev/null
           sdkmanager --install "platform-tools" "platforms;android-34" \
             "build-tools;34.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
