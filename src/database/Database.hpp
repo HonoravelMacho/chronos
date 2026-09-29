@@ -20,6 +20,16 @@ struct StoredMessage {
     std::string tag;
 };
 
+struct StoredSchedule {
+    std::string id;
+    std::string driverName;
+    std::string contactId;
+    std::string text;
+    std::string tag;
+    std::int64_t dueAtUnix = 0;
+    bool done = false;
+};
+
 class Database {
 public:
     Database() = default;
@@ -43,6 +53,10 @@ public:
     bool DeleteTag(const std::string& name);
     std::map<std::string, std::string> ListTags();
 
+    bool SaveSchedule(const StoredSchedule& s);
+    bool MarkScheduleDone(const std::string& id);
+    std::vector<StoredSchedule> ListSchedules(bool includeDone = false);
+
 private:
     bool EnsureSchema();
 
@@ -52,6 +66,7 @@ private:
     // Fallback em memória quando sqlite3.h ausente no build.
     std::vector<StoredMessage> memMessages_;
     std::map<std::string, std::string> memTags_;
+    std::vector<StoredSchedule> memSchedules_;
 };
 
 } // namespace chronos

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "drivers/INetworkDriver.hpp"
+#include "ui/HudTheme.hpp"
 
 namespace chronos::Hud {
 
@@ -62,5 +63,11 @@ bool DrawButton(float x, float y, float w, float h, const std::string& label);
 /// Caixa de texto (tap foca, teclado digita, Enter confirma). Retorna true no Enter.
 bool DrawTextBox(float x, float y, float w, float h, const std::string& id,
                  std::string& text, const std::string& placeholder);
+
+/// Texto com a fonte TTF empacotada (fallback p/ fonte raylib).
+/// Mesmo formato do DrawText raylib — prefira sempre este.
+void DrawText(const char* text, int x, int y, int size, HudTheme::Color c);
+/// Largura em px na fonte ativa.
+int MeasureText(const char* text, int size);
 
 } // namespace chronos::Hud

@@ -33,6 +33,7 @@ private:
     std::string baseUrl_, apiKey_, instance_;
     std::string error_;
     float scroll_ = 0;
+    double lastFetch_ = -1e9;  // auto-refresh do QR a cada 20s em pareamento
 #if CHRONOS_HAS_RAYLIB
     Texture2D qr_ = {0};
     bool qrLoaded_ = false;

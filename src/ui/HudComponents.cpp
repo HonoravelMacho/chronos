@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/HudComponents.hpp"
+#include "ui/FontManager.hpp"
 #include "ui/HudTheme.hpp"
 
 #if CHRONOS_HAS_RAYLIB
@@ -87,6 +88,34 @@ float ConsumePinch() {
     return r;
 }
 
+void DrawText(const char* text, int x, int y, int size, HudTheme::Color c) {
+#if CHRONOS_HAS_RAYLIB
+    FontManager& fm = FontManager::Instance();
+    if (fm.Ready()) {
+        const float spacing = size >= 20 ? 2.0f : 1.0f;
+        DrawTextEx(fm.Mono(), text, {(float)x, (float)y}, (float)size, spacing, c);
+    } else {
+        ::DrawText(text, x, y, size, c);
+    }
+#else
+    (void)text; (void)x; (void)y; (void)size; (void)c;
+#endif
+}
+
+int MeasureText(const char* text, int size) {
+#if CHRONOS_HAS_RAYLIB
+    FontManager& fm = FontManager::Instance();
+    if (fm.Ready()) {
+        const float spacing = size >= 20 ? 2.0f : 1.0f;
+        return (int)MeasureTextEx(fm.Mono(), text, (float)size, spacing).x;
+    }
+    return ::MeasureText(text, size);
+#else
+    (void)text; (void)size;
+    return 0;
+#endif
+}
+
 float MouseWheel() {
 #if CHRONOS_HAS_RAYLIB
     return GetMouseWheelMove();
@@ -114,7 +143,7 @@ void DrawPanel(float x, float y, float w, float h, const std::string& title) {
     DrawTriangle({x + w, y + h}, {x + w - c, y + h}, {x + w, y + h - c}, Bg());
     // Glow neon superior.
     DrawRectangle((int)x, (int)y, (int)w, 2, Neon());
-    DrawText(title.c_str(), (int)(x + 12 * S), (int)(y + 8 * S), ScaledFont(kFontSizeMono),
+    Hud::DrawText(title.c_str(), (int)(x + 12 * S), (int)(y + 8 * S), ScaledFont(kFontSizeMono),
              Text());
 #else
     (void)x; (void)y; (void)w; (void)h; (void)title;
@@ -129,7 +158,7 @@ void DrawTopBar(int screenW,
     const int barH = (int)(48 * S) + 8;
     DrawRectangle(0, 0, screenW, barH, Panel());
     DrawRectangle(0, barH, screenW, 2, Neon());
-    DrawText("CHRONOS // ROUTED OUTGOING HUB", (int)(16 * S), (int)(14 * S),
+    Hud::DrawText("CHRONOS // ROUTED OUTGOING HUB", (int)(16 * S), (int)(14 * S),
              ScaledFont(kFontSizeTitle), Neon());
     // Em tela estreita (celular) mostra só os LEDs; nomes não cabem.
     const bool compact = screenW < 700;
@@ -139,7 +168,7 @@ void DrawTopBar(int screenW,
         Color c = st.connected ? Ok() : (st.state == "connecting" ? Amber() : Danger());
         DrawCircle((int)cx, barH / 2, 7 * S, c);
         if (!compact) {
-            DrawText(d->Name().c_str(), (int)(cx + 12 * S), (int)(16 * S),
+            Hud::DrawText(d->Name().c_str(), (int)(cx + 12 * S), (int)(16 * S),
                      ScaledFont(kFontSizeMono), Text());
             cx -= 140 * S;
         } else {
@@ -173,9 +202,9 @@ void DrawStatusLeds(float x, float y,
         const float yy = y + row * rowH;
         DrawCircle((int)x + (int)(8 * S), (int)yy + (int)(8 * S), 6 * S, c);  // LED com glow
         DrawCircleLines((int)x + (int)(8 * S), (int)yy + (int)(8 * S), 9 * S, c);
-        DrawText((d->Name() + " [" + st.state + "]").c_str(), (int)(x + 24 * S), (int)yy,
+        Hud::DrawText((d->Name() + " [" + st.state + "]").c_str(), (int)(x + 24 * S), (int)yy,
                  ScaledFont(kFontSizeMono), Text());
-        DrawText(st.detail.c_str(), (int)(x + 24 * S), (int)(yy + 20 * S),
+        Hud::DrawText(st.detail.c_str(), (int)(x + 24 * S), (int)(yy + 20 * S),
                  ScaledFont(12), TextDim());
         ++row;
     }
@@ -228,7 +257,7 @@ bool DrawTextBox(float x, float y, float w, float h, const std::string& id,
     while (!shown.empty() &&
            MeasureText(shown.c_str(), ScaledFont(kFontSizeMono)) > (int)(w - 16 * S))
         shown.erase(shown.begin());
-    DrawText(shown.c_str(), (int)(x + 8 * S),
+    Hud::DrawText(shown.c_str(), (int)(x + 8 * S),
              (int)(y + h / 2 - ScaledFont(kFontSizeMono) / 2), ScaledFont(kFontSizeMono),
              tc);
     return focused && (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER));
@@ -247,7 +276,7 @@ bool DrawButton(float x, float y, float w, float h, const std::string& label) {
         h = TouchTarget();
     }
     DrawRectangle((int)x, (int)y, (int)w, (int)h, PanelEdge());
-    DrawText(label.c_str(), (int)(x + 10 * UiScale()),
+    Hud::DrawText(label.c_str(), (int)(x + 10 * UiScale()),
              (int)(y + h / 2 - ScaledFont(kFontSizeMono) / 2), ScaledFont(kFontSizeMono),
              Text());
     const Pointer p = PollPointer();

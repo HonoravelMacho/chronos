@@ -50,7 +50,7 @@ void ContactSelector::Draw(float x, float y, float w, float h) {
     DrawRectangle((int)(x + 12 * S), (int)(y + 30 * S), (int)(w - 24 * S), (int)searchH, Bg());
     DrawRectangleLines((int)(x + 12 * S), (int)(y + 30 * S), (int)(w - 24 * S), (int)searchH,
                        Neon());
-    DrawText(">_", (int)(x + 18 * S), (int)(y + 36 * S), ScaledFont(kFontSizeMono), Neon());
+    Hud::DrawText(">_", (int)(x + 18 * S), (int)(y + 36 * S), ScaledFont(kFontSizeMono), Neon());
     // (Integração real de teclado: GuiTextBox / polling de chars — esqueleto.)
 
     const float rowH = TouchTarget() + 8 * S;  // linhas tocáveis no celular
@@ -89,9 +89,9 @@ void ContactSelector::Draw(float x, float y, float w, float h) {
             else if (c.kind == "group") kindC = Amber();
             else if (c.kind == "channel" || c.kind == "community") kindC = Neon();
             DrawCircle((int)(x + 26 * S), (int)(ry + rowH / 2), 4 * S, kindC);
-            DrawText(c.displayName.c_str(), (int)(x + 36 * S), (int)(ry + 6 * S),
+            Hud::DrawText(c.displayName.c_str(), (int)(x + 36 * S), (int)(ry + 6 * S),
                      ScaledFont(kFontSizeMono), fg);
-            DrawText((c.kind + " :: " + c.driverName).c_str(), (int)(x + 36 * S),
+            Hud::DrawText((c.kind + " :: " + c.driverName).c_str(), (int)(x + 36 * S),
                      (int)(ry + 6 * S + ScaledFont(kFontSizeMono) + 4), ScaledFont(12),
                      sel ? Bg() : TextDim());
             if (c.isOnline)

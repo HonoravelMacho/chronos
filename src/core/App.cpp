@@ -3,13 +3,16 @@
 
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 
 #include "core/EventBus.hpp"
 #include "drivers/WhatsAppDriver.hpp"
 #include "ui/CalendarView.hpp"
 #include "ui/ContactSelector.hpp"
+#include "ui/FontManager.hpp"
 #include "ui/HudComponents.hpp"
 #include "ui/HudTheme.hpp"
+#include "ui/ScheduleSheet.hpp"
 #include "ui/SyncPanel.hpp"
 #include "ui/TagManager.hpp"
 
@@ -37,12 +40,31 @@ void App::InitScheduler() {
                 MessageRequest req{job.contactId, job.text, job.attachmentPath, 0, job.tag};
                 std::string err;
                 const std::string id = d->SendMessage(req, err);
+                db_.MarkScheduleDone(job.id);
+                db_.SaveMessage({id.empty() ? job.id : id, job.driverName, job.contactId,
+                                 job.text, Scheduler::NowUnix(), job.tag});
                 EventBus::Instance().Publish(
                     {EventType::MessageDue, d->Name(), id.empty() ? err : id});
                 break;
             }
         }
     });
+    // Restaura pendentes do SQLite (sobrevivem a reboot do app).
+    const std::int64_t now = Scheduler::NowUnix();
+    for (const auto& s : db_.ListSchedules(false)) {
+        if (s.dueAtUnix <= now) {
+            db_.MarkScheduleDone(s.id);  // venceu com app fechado: baixa, não dispara
+            continue;
+        }
+        ScheduledJob job;
+        job.id = s.id;
+        job.driverName = s.driverName;
+        job.contactId = s.contactId;
+        job.text = s.text;
+        job.tag = s.tag;
+        job.dueAtUnix = s.dueAtUnix;
+        scheduler_.Schedule(job);
+    }
 }
 
 int App::Run(int argc, char** argv) {
@@ -72,8 +94,13 @@ int App::Run(int argc, char** argv) {
     if (!window_.Init("CHRONOS — Routed Outgoing Network Hub", 1280, 720)) return 1;
 
 #if CHRONOS_HAS_RAYLIB
+    FontManager::Instance().Init();  // TTF empacotada (fallback: fonte raylib)
+#endif
+
+#if CHRONOS_HAS_RAYLIB
     CalendarView calendar(&scheduler_);
     SyncPanel sync;
+    ScheduleSheet sheet;
     // Driver WhatsApp (se registrado) alimenta o painel de sincronização.
     WhatsAppDriver* wa = nullptr;
     for (auto& d : drivers_)
@@ -126,6 +153,19 @@ int App::Run(int argc, char** argv) {
             contacts.Draw(W * 0.70f + 4, top, W * 0.30f - 12, H - top - 8);
         }
         Hud::DrawScanlines(window_.Width(), window_.Height(), frames++);
+        // "+" do calendário abre a sheet (dia tocado ou hoje); sheet por cima.
+        if (calendar.TakePlusPressed()) {
+            int yy = 0, mm = 0;
+            calendar.VisibleYearMonth(yy, mm);
+            int dd = calendar.SelectedDay();
+            if (dd < 1) {
+                const std::time_t n = std::time(nullptr);
+                const std::tm tn = *std::localtime(&n);
+                dd = (tn.tm_mon + 1 == mm) ? tn.tm_mday : 1;
+            }
+            sheet.Open(yy, mm, dd);
+        }
+        if (sheet.IsOpen()) sheet.Draw(W, H, contacts.Filtered(), &scheduler_, &db_);
         window_.EndFrame();
     }
 #else
@@ -133,6 +173,9 @@ int App::Run(int argc, char** argv) {
 #endif
 
     scheduler_.Stop();
+#if CHRONOS_HAS_RAYLIB
+    FontManager::Instance().Shutdown();
+#endif
     window_.Shutdown();
     return 0;
 }

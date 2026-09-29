@@ -95,6 +95,7 @@ set(CHRONOS_SOURCES
     src/ui/HudComponents.cpp
     src/ui/CalendarView.cpp
     src/ui/ContactSelector.cpp
+    src/ui/ScheduleSheet.cpp
     src/ui/SyncPanel.cpp
     src/ui/TagManager.cpp
     src/database/Database.cpp
@@ -110,10 +111,12 @@ set(CHRONOS_HEADERS
     src/drivers/TelegramDriver.hpp
     src/drivers/WhatsAppDriver.hpp
     src/ui/HudTheme.hpp
+    src/ui/FontManager.hpp
     src/ui/HudComponents.hpp
     src/ui/LayoutManager.hpp
     src/ui/CalendarView.hpp
     src/ui/ContactSelector.hpp
+    src/ui/ScheduleSheet.hpp
     src/ui/SyncPanel.hpp
     src/ui/TagManager.hpp
     src/database/Database.hpp

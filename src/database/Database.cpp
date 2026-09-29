@@ -210,4 +210,93 @@ std::map<std::string, std::string> Database::ListTags() {
 #endif
 }
 
+bool Database::SaveSchedule(const StoredSchedule& s) {
+    std::lock_guard<std::mutex> lk(m_);
+#if CHRONOS_HAS_SQLITE
+    if (!open_) return false;
+    auto* db = static_cast<sqlite3*>(db_);
+    const char* sql =
+        "INSERT OR REPLACE INTO schedules(id,driver,contact,body,due_at,tag,done)"
+        " VALUES(?,?,?,?,?,?,?);";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(st, 1, s.id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, s.driverName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, s.contactId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 4, s.text.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 5, s.dueAtUnix);
+    sqlite3_bind_text(st, 6, s.tag.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(st, 7, s.done ? 1 : 0);
+    const bool ok = (sqlite3_step(st) == SQLITE_DONE);
+    sqlite3_finalize(st);
+    return ok;
+#else
+    if (!open_) return false;
+    for (auto& e : memSchedules_)
+        if (e.id == s.id) {
+            e = s;
+            return true;
+        }
+    memSchedules_.push_back(s);
+    return true;
+#endif
+}
+
+bool Database::MarkScheduleDone(const std::string& id) {
+    std::lock_guard<std::mutex> lk(m_);
+#if CHRONOS_HAS_SQLITE
+    if (!open_) return false;
+    auto* db = static_cast<sqlite3*>(db_);
+    const char* sql = "UPDATE schedules SET done=1 WHERE id=?;";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(st, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = (sqlite3_step(st) == SQLITE_DONE);
+    sqlite3_finalize(st);
+    return ok;
+#else
+    for (auto& e : memSchedules_)
+        if (e.id == id) {
+            e.done = true;
+            return true;
+        }
+    return false;
+#endif
+}
+
+std::vector<StoredSchedule> Database::ListSchedules(bool includeDone) {
+    std::lock_guard<std::mutex> lk(m_);
+#if CHRONOS_HAS_SQLITE
+    std::vector<StoredSchedule> out;
+    if (!open_) return out;
+    auto* db = static_cast<sqlite3*>(db_);
+    const char* sql = includeDone ? "SELECT id,driver,contact,body,due_at,tag,done"
+                                    " FROM schedules ORDER BY due_at;"
+                                  : "SELECT id,driver,contact,body,due_at,tag,done"
+                                    " FROM schedules WHERE done=0 ORDER BY due_at;";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) return out;
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        StoredSchedule s;
+        s.id = (const char*)sqlite3_column_text(st, 0);
+        s.driverName = (const char*)sqlite3_column_text(st, 1);
+        s.contactId = (const char*)sqlite3_column_text(st, 2);
+        s.text = (const char*)sqlite3_column_text(st, 3);
+        s.dueAtUnix = sqlite3_column_int64(st, 4);
+        const unsigned char* t = sqlite3_column_text(st, 5);
+        s.tag = t ? (const char*)t : "";
+        s.done = sqlite3_column_int(st, 6) != 0;
+        out.push_back(s);
+    }
+    sqlite3_finalize(st);
+    return out;
+#else
+    if (includeDone) return memSchedules_;
+    std::vector<StoredSchedule> out;
+    for (auto& e : memSchedules_)
+        if (!e.done) out.push_back(e);
+    return out;
+#endif
+}
+
 } // namespace chronos

@@ -115,7 +115,10 @@ bool WhatsAppDriver::HttpJson(const std::string& method, const std::string& path
     curl_slist_free_all(hdrs);
     curl_easy_cleanup(c);
     if (rc != CURLE_OK) {
-        outError = std::string("transporte: ") + curl_easy_strerror(rc);
+        // Mensagem acionável: o caso nº 1 é Evolution fora do ar.
+        outError = "Evolution inacessível em " + cfg_.baseUrl + " (" +
+                   curl_easy_strerror(rc) + ") — suba com: docker compose -f "
+                                            "docker/evolution-compose.yml up -d";
         return false;
     }
     if (outHttpStatus >= 400) {

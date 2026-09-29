@@ -25,12 +25,16 @@ void CalendarView::Draw(float x, float y, float w, float h) {
     std::tm tm = *std::localtime(&now);
     tm.tm_mon += monthOff_;
     std::mktime(&tm);
+    visYear_ = tm.tm_year + 1900;
+    visMonth_ = tm.tm_mon + 1;
 
     char buf[32];
     std::strftime(buf, sizeof(buf), "%B %Y", &tm);
-    DrawText(buf, (int)(x + 14 * S), (int)(y + 30 * S), ScaledFont(kFontSizeBody), Neon());
-    // Setas de mês (tap) — alternativa ao swipe.
+    Hud::DrawText(buf, (int)(x + 14 * S), (int)(y + 30 * S), ScaledFont(kFontSizeBody), Neon());
+    // "+" abre o agendamento; setas de mês (tap) — alternativa ao swipe.
     const float navW = 40 * S, navH = 30 * S;
+    if (Hud::DrawButton(x + w - 3 * navW - 28 * S, y + 28 * S, navW, navH, "+"))
+        plusPressed_ = true;
     if (Hud::DrawButton(x + w - 2 * navW - 20 * S, y + 28 * S, navW, navH, "<"))
         PrevMonth();
     if (Hud::DrawButton(x + w - navW - 12 * S, y + 28 * S, navW, navH, ">"))
@@ -79,7 +83,7 @@ void CalendarView::Draw(float x, float y, float w, float h) {
     static const char* kWd[] = {"D", "S", "T", "Q", "Q", "S", "S"};
     const float cw = gw / 7.0f, ch = gh / 7.0f;  // 1 linha p/ semana + 6 p/ dias
     for (int i = 0; i < 7; ++i)
-        DrawText(kWd[i], (int)(gx + i * cw + 6 * S), (int)gy, ScaledFont(12), TextDim());
+        Hud::DrawText(kWd[i], (int)(gx + i * cw + 6 * S), (int)gy, ScaledFont(12), TextDim());
 
     // Conta jobs por dia do mês (miniaturas + tags).
     auto jobs = sched_->List();
@@ -97,7 +101,7 @@ void CalendarView::Draw(float x, float y, float w, float h) {
         if (valid) {
             char dn[8];
             snprintf(dn, sizeof(dn), "%d", dayNum);
-            DrawText(dn, (int)(cx + 6 * S), (int)(cy + 4 * S), ScaledFont(12),
+            Hud::DrawText(dn, (int)(cx + 6 * S), (int)(cy + 4 * S), ScaledFont(12),
                      isToday ? Neon() : TextDim());
         }
         if (valid && Hud::TapIn(p, cx, cy, cw, ch)) selectedDay_ = dayNum;
@@ -107,14 +111,16 @@ void CalendarView::Draw(float x, float y, float w, float h) {
             for (auto& j : jobs) {
                 std::time_t t = (std::time_t)j.dueAtUnix;
                 std::tm jt = *std::localtime(&t);
-                if (jt.tm_mon == tm.tm_mon && jt.tm_mday == dayNum) count++;
+                if (jt.tm_year == tm.tm_year && jt.tm_mon == tm.tm_mon &&
+                    jt.tm_mday == dayNum)
+                    count++;
             }
         }
         if (count > 0) {
             DrawCircle((int)(cx + cw - 12 * S), (int)(cy + 12 * S), 5 * S, Amber());
             char n[16];
             snprintf(n, sizeof(n), "%d", count);
-            DrawText(n, (int)(cx + 6 * S), (int)(cy + ch - 20 * S), ScaledFont(12),
+            Hud::DrawText(n, (int)(cx + 6 * S), (int)(cy + ch - 20 * S), ScaledFont(12),
                      Text());
         }
     }

@@ -38,6 +38,7 @@ void SyncPanel::TryFetchQr(WhatsAppDriver* wa) {
         error_ = err;
         return;
     }
+    lastFetch_ = GetTime();
     if (png.size() == qrBytes_ && qrLoaded_) return;  // mesmo QR, evita reload
     if (qrLoaded_) UnloadTexture(qr_);
     Image img = LoadImageFromMemory(".png", png.data(), (int)png.size());
@@ -73,7 +74,7 @@ void SyncPanel::Draw(float x, float y, float w, float h, WhatsAppDriver* wa) {
     const DriverStatus st = wa->GetStatus();
     Color sc = st.connected ? Ok() : (st.state == "connecting" ? Amber() : Danger());
     DrawCircle((int)(cx + 8 * S), (int)(ry + 10 * S), 6 * S, sc);
-    DrawText(st.state.c_str(), (int)(cx + 22 * S), (int)ry, ScaledFont(kFontSizeMono),
+    Hud::DrawText(st.state.c_str(), (int)(cx + 22 * S), (int)ry, ScaledFont(kFontSizeMono),
              Text());
     ry += 24 * S;
 
@@ -100,20 +101,25 @@ void SyncPanel::Draw(float x, float y, float w, float h, WhatsAppDriver* wa) {
     if (scroll_ < 0) scroll_ = 0;
     if (scroll_ > maxScroll) scroll_ = maxScroll;
 
-    // Auto-busca o QR ao entrar em pareamento.
-    if (st.state == "connecting" && lastState_ != "connecting") TryFetchQr(wa);
+    // Auto-busca o QR ao entrar em pareamento + refresh a cada 20s (expira).
+    if (st.state == "connecting") {
+        if (lastState_ != "connecting") TryFetchQr(wa);
+#if CHRONOS_HAS_RAYLIB
+        if (GetTime() - lastFetch_ > 20.0) TryFetchQr(wa);
+#endif
+    }
     lastState_ = st.state;
 
     BeginScissorMode((int)x, (int)viewY, (int)w, (int)viewH);
     float ly = viewY - scroll_;
     auto label = [&](const char* t) {
-        DrawText(t, (int)cx, (int)ly, ScaledFont(12), TextDim());
+        Hud::DrawText(t, (int)cx, (int)ly, ScaledFont(12), TextDim());
         ly += ScaledFont(12) + 4 * S;
     };
 
     if (st.connected) {
         label("CONECTADO COMO");
-        DrawText(instance_.c_str(), (int)cx, (int)ly, ScaledFont(kFontSizeBody), Ok());
+        Hud::DrawText(instance_.c_str(), (int)cx, (int)ly, ScaledFont(kFontSizeBody), Ok());
         ly += rowH;
         if (Hud::DrawButton(cx, ly, cw, rowH, "DESCONECTAR")) {
             wa->Disconnect();
@@ -127,16 +133,19 @@ void SyncPanel::Draw(float x, float y, float w, float h, WhatsAppDriver* wa) {
         ly += rowH + gap;
     } else if (hasKey && (st.state == "connecting" || st.state == "error")) {
         if (!st.detail.empty()) {
-            DrawText(st.detail.c_str(), (int)cx, (int)ly, ScaledFont(12), Amber());
+            Hud::DrawText(st.detail.c_str(), (int)cx, (int)ly, ScaledFont(12), Amber());
             ly += ScaledFont(12) + gap;
         }
 #if CHRONOS_HAS_RAYLIB
         if (qrLoaded_) {
-            const float qs = cw < 260 * S ? cw : 260 * S;
+            const float qs = cw < 280 * S ? cw : 280 * S;
+            const float qx = cx + (cw - qs) / 2;
             DrawTexturePro(qr_, {0, 0, (float)qr_.width, (float)qr_.height},
-                           {cx + (cw - qs) / 2, ly, qs, qs}, {0, 0}, 0, WHITE);
+                           {qx, ly, qs, qs}, {0, 0}, 0, WHITE);
+            // Tap no QR também atualiza (gesto natural quando expira).
+            if (Hud::TapIn(p, qx, ly, qs, qs)) TryFetchQr(wa);
             ly += qs + gap;
-            DrawText("Escaneie no WhatsApp > Aparelhos", (int)cx, (int)ly,
+            Hud::DrawText("Escaneie no WhatsApp > Aparelhos", (int)cx, (int)ly,
                      ScaledFont(12), TextDim());
             ly += ScaledFont(12) + gap;
         }
@@ -176,7 +185,7 @@ void SyncPanel::Draw(float x, float y, float w, float h, WhatsAppDriver* wa) {
         ly += rowH + gap;
     }
     if (!error_.empty())
-        DrawText(error_.c_str(), (int)cx, (int)ly, ScaledFont(12), Danger());
+        Hud::DrawText(error_.c_str(), (int)cx, (int)ly, ScaledFont(12), Danger());
     EndScissorMode();
 #else
     (void)x; (void)y; (void)w; (void)h; (void)wa;

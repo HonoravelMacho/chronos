@@ -218,16 +218,20 @@ Variáveis: `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `CHRONOS_DB_KEY`.
 
 ### WhatsApp (Evolution API local)
 
-Suba a [Evolution API](https://github.com/EvolutionAPI/evolution-api) no seu
-próprio dispositivo/servidor:
+O CHRONOS fala com o WhatsApp via **Evolution API auto-hospedada** (não há
+cliente direto: o WhatsApp exige esse bridge). Conexão de fato em 2 passos:
 
 ```bash
-docker run -p 8080:8080 -e AUTHENTICATION_API_KEY=minha-chave evolution-api
-export EVO_BASE_URL=http://localhost:8080
-export EVO_API_KEY=minha-chave
-export EVO_INSTANCE=chronos
-./build/chronos
+# 1. Suba a Evolution (1 comando, ~1 min no primeiro pull):
+EVO_KEY=sua-chave-forte docker compose -f docker/evolution-compose.yml up -d
+
+# 2. No app, painel SYNC WHATSAPP: servidor http://localhost:8080,
+#    API KEY = a mesma do EVO_KEY, instância = chronos -> SALVAR + CONECTAR
+#    -> escaneie o QR no celular (WhatsApp > Aparelhos vinculados).
 ```
+
+Sem a Evolution no ar, o painel mostra exatamente o que falta
+(`Evolution inacessível em ...` com o comando para subir).
 
 Fluxo: `Connect()` lê `GET /instance/connectionState/{instance}`
 (`open` → online, `connecting` → pareando, `close` → erro com instrução de QR);

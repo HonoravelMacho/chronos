@@ -11,6 +11,10 @@ struct Color { unsigned char r, g, b, a; };
 
 namespace chronos::HudTheme {
 
+#if CHRONOS_HAS_RAYLIB
+using Color = ::Color;  // alias p/ HudTheme::Color existir nos dois modos
+#endif
+
 // Fundo grafite profundo, painéis metálicos chanfrados, neon ciano/âmbar.
 #if CHRONOS_HAS_RAYLIB
 inline Color Bg()        { return {10, 14, 20, 255}; }
@@ -20,7 +24,7 @@ inline Color Neon()      { return {0, 229, 255, 255}; }
 inline Color Amber()     { return {255, 176, 0, 255}; }
 inline Color Danger()    { return {255, 60, 90, 255}; }
 inline Color Ok()        { return {0, 255, 170, 255}; }
-inline Color Text()      { return {200, 230, 255, 255}; }
+inline Color Text()      { return {225, 243, 255, 255}; }
 inline Color TextDim()   { return {120, 150, 175, 255}; }
 #else
 inline Color Bg()        { return {10, 14, 20, 255}; }
@@ -30,14 +34,14 @@ inline Color Neon()      { return {0, 229, 255, 255}; }
 inline Color Amber()     { return {255, 176, 0, 255}; }
 inline Color Danger()    { return {255, 60, 90, 255}; }
 inline Color Ok()        { return {0, 255, 170, 255}; }
-inline Color Text()      { return {200, 230, 255, 255}; }
+inline Color Text()      { return {225, 243, 255, 255}; }
 inline Color TextDim()   { return {120, 150, 175, 255}; }
 #endif
 
 inline constexpr float kChamfer = 10.0f;  // chanfro dos painéis metálicos
-inline constexpr int   kFontSizeTitle = 22;
-inline constexpr int   kFontSizeBody  = 16;
-inline constexpr int   kFontSizeMono  = 14;
+inline constexpr int   kFontSizeTitle = 24;
+inline constexpr int   kFontSizeBody  = 17;
+inline constexpr int   kFontSizeMono  = 15;
 
 // Escala de UI por DPI: em celular (2400px+) fontes de 14px viram microtexto.
 // Base 720p => 1.0; telefones chegam a ~2.5. Desktop 720p fica inalterado.
