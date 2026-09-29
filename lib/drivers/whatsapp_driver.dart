@@ -94,6 +94,9 @@ class WhatsAppDriver extends NetworkDriver {
       return true;
     }
     try {
+      // Auto-cria a instância se ainda não existir (fluxo 1-clique:
+      // sem isso o QR/connect falhava com "instance not found").
+      await _ensureInstance();
       final j = await _json('GET', '/instance/connectionState/${_config.instance}');
       final state = ((j['instance'] as Map?)?['state'] as String?) ?? 'unknown';
       if (state == 'open') {
@@ -224,27 +227,98 @@ class WhatsAppDriver extends NetworkDriver {
     return sw.elapsedMilliseconds;
   }
 
-  /// QR de pareamento (GET /instance/connect) como bytes PNG.
+  /// Garante a instância na Evolution (POST /instance/create).
+  /// Best-effort de propósito: 403 = já existe; qualquer outro erro é
+  /// ignorado aqui e as chamadas seguintes mostram o erro real.
+  Future<void> _ensureInstance() async {
+    try {
+      await _json('POST', '/instance/create', {
+        'instanceName': _config.instance,
+        'qrcode': true,
+        'integration': 'WHATSAPP-BAILEYS',
+      });
+    } on DriverException {
+      // segue o fluxo; connectionState/connect vão diagnosticar
+    }
+  }
+
+  /// Código de pareamento (vincular com número, sem câmera):
+  /// POST /instance/connect {number} -> exibe no WhatsApp >
+  /// Aparelhos vinculados > "Vincular com número de telefone".
+  Future<String> requestPairingCode(String number) async {
+    final digits = number.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 10 || digits.length > 15) {
+      throw DriverException(
+          'número inválido: use DDI+DDD+número (ex.: 5511999990001)');
+    }
+    await _ensureInstance();
+    final j =
+        await _json('POST', '/instance/connect/${_config.instance}', {
+      'number': digits,
+    });
+    final nested = j['qrcode'];
+    final code = j['pairingCode'] ??
+        j['code'] ??
+        j['pairing_code'] ??
+        (nested is Map
+            ? nested['pairingCode'] ?? nested['code']
+            : null);
+    final out = (code as String?)?.trim() ?? '';
+    if (out.isEmpty) {
+      throw DriverException(
+          'Evolution não retornou código (resposta sem pairingCode)');
+    }
+    return out;
+  }
+
+  /// QR de pareamento (GET /instance/connect) como bytes de imagem.
+  /// Tolera variações da Evolution v2.3 (base64 puro, data-URI, aninhado
+  /// em "qrcode"/"qr") e aceita PNG ou JPEG pelo magic number.
   Future<Uint8List> fetchQrPng() async {
+    await _ensureInstance();
     final j = await _json('GET', '/instance/connect/${_config.instance}');
-    var b64 = (j['base64'] as String?) ?? '';
+    dynamic raw = j['base64'] ?? j['qr'] ?? j['qrcode'];
+    if (raw is Map) {
+      raw = raw['base64'] ?? raw['code'] ?? raw['qr'];
+    }
+    var b64 = (raw as String?) ?? '';
     if (b64.isEmpty) {
-      throw DriverException('QR indisponível nesta resposta');
+      throw DriverException(
+          'QR indisponível: instância "${_config.instance}" ainda sem sessão — '
+          'toque RECONECTAR e tente de novo');
     }
     final comma = b64.indexOf(',');
-    if (b64.startsWith('data:') && comma >= 0) b64 = b64.substring(comma + 1);
+    if (b64.startsWith('data:') && comma >= 0) {
+      b64 = b64.substring(comma + 1);
+    }
+    b64 = b64.replaceAll(RegExp(r'\s'), '');
+    // base64 sem padding (comum na Evolution) -> completa.
+    final mod = b64.length % 4;
+    if (mod != 0) b64 += '=' * (4 - mod);
     Uint8List bytes;
     try {
       bytes = base64Decode(b64);
     } catch (_) {
-      throw DriverException('base64 do QR inválido');
+      throw DriverException('QR veio em formato ilegível (base64 inválido)');
     }
-    // Sanidade mínima de PNG (assinatura de 8 bytes).
-    const sig = [137, 80, 78, 71, 13, 10, 26, 10];
-    if (bytes.length < 8) throw DriverException('QR não veio em PNG');
-    for (var i = 0; i < 8; i++) {
-      if (bytes[i] != sig[i]) throw DriverException('QR não veio em PNG');
+    if (bytes.length < 8) {
+      throw DriverException('QR veio vazio da Evolution');
+    }
+    const png = [137, 80, 78, 71, 13, 10, 26, 10];
+    final isPng = _startsWith(bytes, png);
+    final isJpeg = bytes[0] == 255 && bytes[1] == 216 && bytes[2] == 255;
+    if (!isPng && !isJpeg) {
+      throw DriverException(
+          'QR veio em formato inesperado (não é PNG/JPEG)');
     }
     return bytes;
+  }
+
+  bool _startsWith(Uint8List bytes, List<int> sig) {
+    if (bytes.length < sig.length) return false;
+    for (var i = 0; i < sig.length; i++) {
+      if (bytes[i] != sig[i]) return false;
+    }
+    return true;
   }
 }

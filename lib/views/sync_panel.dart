@@ -30,10 +30,13 @@ class _SyncPanelState extends State<SyncPanel> {
   final _port = TextEditingController();
   final _key = TextEditingController();
   final _instance = TextEditingController();
+  final _phone = TextEditingController();
   bool _loaded = false;
   String? _error;
   String? _probe;
+  String? _pairCode;
   bool _probing = false;
+  bool _pairing = false;
   Uint8List? _qr;
   Timer? _qrTimer;
 
@@ -46,6 +49,7 @@ class _SyncPanelState extends State<SyncPanel> {
     _port.dispose();
     _key.dispose();
     _instance.dispose();
+    _phone.dispose();
     super.dispose();
   }
 
@@ -127,6 +131,25 @@ class _SyncPanelState extends State<SyncPanel> {
       }
     } on DriverException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    }
+  }
+
+  /// Gera código de pareamento (vincular com número, sem câmera).
+  Future<void> _requestCode() async {
+    final wa = _wa;
+    if (wa == null) return;
+    setState(() {
+      _pairing = true;
+      _pairCode = null;
+      _error = null;
+    });
+    try {
+      final code = await wa.requestPairingCode(_phone.text);
+      if (mounted) setState(() => _pairCode = code);
+    } on DriverException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _pairing = false);
     }
   }
 
@@ -262,7 +285,11 @@ class _SyncPanelState extends State<SyncPanel> {
                     filled: false,
                     onPressed: () =>
                         setState(() => _key.clear())),
+                const SizedBox(height: 10),
+                _pairingSection(),
               ] else ...[
+                _apiKeyHelp(),
+                const SizedBox(height: 8),
                 _cfgField(_host, 'SERVIDOR // HOST',
                     'IP do PC (ex.: 192.168.1.20)'),
                 const SizedBox(height: 8),
@@ -309,6 +336,89 @@ class _SyncPanelState extends State<SyncPanel> {
           ),
         );
       },
+    );
+  }
+
+  /// De onde vem a API KEY? É VOCÊ quem cria: a mesma chave informada
+  /// ao subir a Evolution (AUTHENTICATION_API_KEY / EVO_KEY).
+  Widget _apiKeyHelp() {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: HudColors.amber.withValues(alpha: 0.07),
+        border: Border.all(
+            color: HudColors.amber.withValues(alpha: 0.5)),
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('DE ONDE VEM A API KEY?',
+              style: TextStyle(
+                  color: HudColors.amber,
+                  fontSize: 10,
+                  letterSpacing: 1.4,
+                  fontWeight: FontWeight.bold)),
+          SizedBox(height: 6),
+          Text(
+              'A chave é VOCÊ quem inventa ao subir a Evolution no PC:\n'
+              '  -e AUTHENTICATION_API_KEY=\'sua-chave\'\n'
+              'Depois digite A MESMA chave no campo API KEY abaixo.\n'
+              'Se outra pessoa hospeda a Evolution, peça a chave a ela.',
+              style: TextStyle(color: HudColors.text, fontSize: 11)),
+        ],
+      ),
+    );
+  }
+
+  /// Alternativa sem câmera: vincular digitando um código no WhatsApp.
+  Widget _pairingSection() {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: HudColors.matrix.withValues(alpha: 0.06),
+        border: Border.all(
+            color: HudColors.matrix.withValues(alpha: 0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('SEM CÂMERA? VINCULAR COM CÓDIGO',
+              style: TextStyle(
+                  color: HudColors.matrix,
+                  fontSize: 10,
+                  letterSpacing: 1.4,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          const Text(
+              'Digite seu número com DDI+DDD e gere um código; '
+              'depois, no WhatsApp: Aparelhos vinculados › '
+              '“Vincular com número de telefone”.',
+              style: TextStyle(color: HudColors.dim, fontSize: 11)),
+          const SizedBox(height: 8),
+          _cfgField(_phone, 'SEU NÚMERO // WHATSAPP',
+              'ex.: 5511999990001',
+              numeric: true),
+          const SizedBox(height: 8),
+          NeonButton(
+              label: _pairing ? 'GERANDO...' : 'GERAR CÓDIGO',
+              accent: HudColors.matrix,
+              filled: false,
+              icon: Icons.dialpad,
+              onPressed: _pairing ? null : _requestCode),
+          if (_pairCode != null)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: SelectableText(_pairCode!,
+                    style: const TextStyle(
+                        color: HudColors.matrix,
+                        fontSize: 30,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 4)),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

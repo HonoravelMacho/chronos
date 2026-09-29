@@ -221,8 +221,8 @@ class HudTopBar extends StatelessWidget implements PreferredSizeWidget {
                       letterSpacing: 3,
                       fontSize: 18)),
               const SizedBox(width: 10),
-              const Expanded(
-                child: Text('// ROUTED OUTGOING HUB',
+              Expanded(
+                child: Text('// ROUTED OUTGOING HUB · v$kChronosVersion',
                     style: TextStyle(
                         color: HudColors.dim,
                         fontSize: 11,

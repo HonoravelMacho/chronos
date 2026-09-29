@@ -53,7 +53,14 @@ void main() {
         if (path.startsWith('/chat/findChats/')) {
           return http.Response(jsonEncode(route('chats')), 200);
         }
+        if (path == '/instance/create') {
+          return http.Response(jsonEncode(route('create')), 201);
+        }
         if (path.startsWith('/instance/connect/')) {
+          // POST com número = código de pareamento; GET = QR.
+          if (req.method == 'POST' && req.body.contains('number')) {
+            return http.Response(jsonEncode(route('pair')), 200);
+          }
           return http.Response(jsonEncode(route('qr')), 200);
         }
         return http.Response('{"message":"Not found"}', 404);
@@ -67,6 +74,12 @@ void main() {
         switch (kind) {
           case 'state':
             return {'instance': {'instanceName': 'chronos', 'state': 'open'}};
+          case 'create':
+            return {
+              'instance': {'instanceName': 'chronos', 'state': 'connecting'}
+            };
+          case 'pair':
+            return {'pairingCode': 'ABCD-1234'};
           case 'send':
             return {'key': {'remoteJid': '5511@s.whatsapp.net',
                 'fromMe': true, 'id': 'BAE5TEST123'}};
@@ -94,6 +107,35 @@ void main() {
       expect(chats.length, 2); // broadcast filtrado
       expect(chats[1].kind, 'group');
       expect((await d.fetchQrPng()).length, greaterThan(8));
+      expect(await d.requestPairingCode('55 11 99999-0001'), 'ABCD-1234');
+    });
+
+    test('QR aninhado em qrcode{} também decodifica', () async {
+      final tiny = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
+          'AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      final client = mock((kind) => kind == 'create'
+          ? {'instance': {'instanceName': 'chronos'}}
+          : {
+              'qrcode': {'base64': tiny} // sem prefixo data-URI
+            });
+      final d = WhatsAppDriver(
+          config: EvolutionConfig(baseUrl: 'http://127.0.0.1:9',
+              apiKey: 'k', instance: 'chronos'),
+          client: client);
+      expect((await d.fetchQrPng()).length, greaterThan(8));
+    });
+
+    test('número inválido no pareamento vira erro legível', () async {
+      final d = WhatsAppDriver(
+          config: EvolutionConfig(baseUrl: 'http://127.0.0.1:9',
+              apiKey: 'k', instance: 'chronos'),
+          client: MockClient((_) async => http.Response('{}', 200)));
+      try {
+        await d.requestPairingCode('123');
+        fail('deveria lançar DriverException');
+      } on DriverException catch (e) {
+        expect(e.message, contains('5511999990001'));
+      }
     });
 
     test('401 vira DriverException legível', () async {

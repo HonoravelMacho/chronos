@@ -7,6 +7,9 @@ import 'package:flutter/material.dart';
 
 export 'led.dart' show LedDot, DriverStatusLine;
 
+/// Versão exibida no TopBar (manter igual ao pubspec.yaml).
+const kChronosVersion = '0.5.2';
+
 class HudColors {
   static const abyss = Color(0xFF07090E);
   static const bg = Color(0xFF0B0F19);
