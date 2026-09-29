@@ -58,9 +58,15 @@ jobs:
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
+      # sqlite.org às vezes recusa conexões do CI (SSL 35 transitório) — retry.
       - name: Install deps (vcpkg)
         run: |
-          vcpkg install curl:x64-windows-static sqlite3:x64-windows-static
+          $ok = $false
+          for ($i = 1; $i -le 4 -and -not $ok; $i++) {
+            vcpkg install curl:x64-windows-static sqlite3:x64-windows-static
+            if ($LASTEXITCODE -eq 0) { $ok = $true } else { Start-Sleep -Seconds 30 }
+          }
+          if (-not $ok) { exit 1 }
           echo "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
 
       - name: Configure
@@ -108,7 +114,7 @@ jobs:
           echo "$CMDTOOLS/bin" >> $GITHUB_PATH
           yes | sdkmanager --licenses > /dev/null
           sdkmanager --install "platform-tools" "platforms;android-34" \
-            "build-tools;34.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
+            "build-tools;34.0.0" "ndk;25.2.9519653" "cmake;3.22.1"
 
       - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4

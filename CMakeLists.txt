@@ -147,7 +147,8 @@ else()
     target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_CURL=0)
 endif()
 
-if(SQLite3_FOUND OR SQLite3_LIBRARY OR EXISTS "/usr/include/sqlite3.h")
+# No Android (cross-compile) o check de host /usr/include/sqlite3.h é inválido.
+if(NOT ANDROID AND (SQLite3_FOUND OR SQLite3_LIBRARY OR EXISTS "/usr/include/sqlite3.h"))
     if(TARGET SQLite::SQLite3)
         target_link_libraries(${tgt} PRIVATE SQLite::SQLite3)
     else()
