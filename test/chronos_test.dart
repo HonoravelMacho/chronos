@@ -39,6 +39,13 @@ void main() {
       s.stop();
       s.dispose();
     });
+
+    test('isStale: vencido há +24h é obsoleto', () {
+      final now = Scheduler.nowUnix();
+      expect(Scheduler.isStale(now - 25 * 3600, now), isTrue);
+      expect(Scheduler.isStale(now - 3600, now), isFalse);
+      expect(Scheduler.isStale(now + 3600, now), isFalse);
+    });
   });
 
   group('WhatsAppDriver (mock Evolution v2.3)', () {

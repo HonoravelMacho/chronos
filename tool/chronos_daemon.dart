@@ -114,10 +114,27 @@ Future<int> runOnce({Duration httpTimeout = const Duration(seconds: 15)}) async 
       log('tabela schedules ausente — abra o app 1 vez');
       return 0;
     }
+    // Banco v1 (sem status/error): migra como o app faz no onUpgrade.
+    final cols = db
+        .query('PRAGMA table_info(schedules)')
+        .map((r) => r['name'] as String)
+        .toSet();
+    if (!cols.contains('status')) {
+      db.execute("ALTER TABLE schedules ADD COLUMN status TEXT DEFAULT 'pending'");
+    }
+    if (!cols.contains('error')) {
+      db.execute("ALTER TABLE schedules ADD COLUMN error TEXT DEFAULT ''");
+    }
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    // Recupera 'sending' preso por crash há +10min.
+    db.execute(
+        "UPDATE schedules SET status = 'pending' "
+        "WHERE status = 'sending' AND due_at < ?",
+        [now - 600]);
     final due = db.query(
-        'SELECT id, driver, contact, body, tag FROM schedules '
-        'WHERE done = 0 AND due_at <= ? ORDER BY due_at',
+        'SELECT id, driver, contact, body, tag, due_at FROM schedules '
+        "WHERE done = 0 AND status = 'pending' AND due_at <= ? "
+        'ORDER BY due_at',
         [now]);
     if (due.isEmpty) return 0;
     log('${due.length} vencida(s) — entregando...');
@@ -126,10 +143,29 @@ Future<int> runOnce({Duration httpTimeout = const Duration(seconds: 15)}) async 
     try {
       for (final row in due) {
         final id = row['id'] as String;
+        // Reserva atômica: se o app já pegou, pula (anti-duplo).
+        db.execute(
+            "UPDATE schedules SET status = 'sending' "
+            "WHERE id = ? AND done = 0 AND status = 'pending'",
+            [id]);
+        final claimed =
+            (db.query('SELECT changes() AS c').first['c'] as int) > 0;
+        if (!claimed) {
+          log('[$id] app entregou antes — pulando');
+          continue;
+        }
         final driver = row['driver'] as String;
+        final dueAt = row['due_at'] as int;
+        // Catch-up até 24h; além disso vira 'expired' (sem surpresa).
+        if (now - dueAt > 24 * 3600) {
+          finish(db, id, 'expired', 'venceu há mais de 24h');
+          log('[$id] expirada (>24h) — marcada em vermelho');
+          continue;
+        }
         if (driver != 'whatsapp') {
-          log('[$id] driver "$driver" não suportado no daemon v1 — baixando');
-          db.execute('UPDATE schedules SET done = 1 WHERE id = ?', [id]);
+          finish(db, id, 'error',
+              'driver "$driver" sem suporte no daemon v1');
+          log('[$id] driver "$driver" sem suporte — marcada em vermelho');
           continue;
         }
         final number = toNumber(row['contact'] as String);
@@ -149,7 +185,8 @@ Future<int> runOnce({Duration httpTimeout = const Duration(seconds: 15)}) async 
                   }))
               .timeout(httpTimeout);
           if (res.statusCode >= 400) {
-            log('[$id] HTTP ${res.statusCode} — baixa sem reenviar em loop');
+            finish(db, id, 'error', 'evolution: HTTP ${res.statusCode}');
+            log('[$id] HTTP ${res.statusCode} — marcada em vermelho');
           } else {
             dynamic j;
             try {
@@ -167,14 +204,19 @@ Future<int> runOnce({Duration httpTimeout = const Duration(seconds: 15)}) async 
                   'VALUES(?, ?, ?, ?, ?, ?)',
                   [msgId, driver, row['contact'], body, now, tag]);
             }
+            finish(db, id, 'sent');
             delivered++;
             log('[$id] entregue -> $number');
           }
         } catch (e) {
-          log('[$id] falha de rede ($e) — fica pendente p/ próxima varredura');
-          continue; // mantém pendente; tenta de novo no próximo ciclo
+          // Rede falhou: devolve à fila (fica amarela p/ próxima varredura).
+          db.execute(
+              "UPDATE schedules SET status = 'pending' "
+              "WHERE id = ? AND status = 'sending'",
+              [id]);
+          log('[$id] falha de rede ($e) — tenta de novo no próximo ciclo');
+          continue;
         }
-        db.execute('UPDATE schedules SET done = 1 WHERE id = ?', [id]);
       }
     } finally {
       client.close();
@@ -183,6 +225,13 @@ Future<int> runOnce({Duration httpTimeout = const Duration(seconds: 15)}) async 
   } finally {
     db.close();
   }
+}
+
+/// Baixa terminal: status + done=1 (visível no calendário).
+void finish(MiniDb db, String id, String status, [String error = '']) {
+  db.execute(
+      'UPDATE schedules SET status = ?, error = ?, done = 1 WHERE id = ?',
+      [status, error, id]);
 }
 
 // ── systemd --user ──────────────────────────────────────────────────────────

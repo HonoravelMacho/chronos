@@ -16,6 +16,8 @@ class StoredSchedule {
     this.tag = '',
     required this.dueAtUnix,
     this.done = false,
+    this.status = 'pending',
+    this.error = '',
   });
 
   final String id;
@@ -25,6 +27,10 @@ class StoredSchedule {
   final String tag;
   final int dueAtUnix;
   final bool done;
+
+  /// pending | sending | sent | error | expired
+  final String status;
+  final String error;
 }
 
 class LocalDatabase {
@@ -42,17 +48,27 @@ class LocalDatabase {
     _db = await databaseFactoryFfi.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
         onCreate: (db, _) async {
           await db.execute(
               'CREATE TABLE messages(id TEXT PRIMARY KEY,driver TEXT,contact TEXT,'
               'body TEXT,sent_at INTEGER,tag TEXT)');
           await db.execute(
               'CREATE TABLE schedules(id TEXT PRIMARY KEY,driver TEXT,contact TEXT,'
-              'body TEXT,due_at INTEGER,tag TEXT,done INTEGER DEFAULT 0)');
+              'body TEXT,due_at INTEGER,tag TEXT,done INTEGER DEFAULT 0,'
+              'status TEXT DEFAULT \'pending\',error TEXT DEFAULT \'\')');
           await db.execute('CREATE TABLE tags(name TEXT PRIMARY KEY,color TEXT)');
           await db.execute(
               'CREATE TABLE sessions(driver TEXT PRIMARY KEY,blob TEXT)');
+        },
+        onUpgrade: (db, oldV, _) async {
+          // v1 -> v2: rastreio de estado (verde/amarelo/vermelho).
+          if (oldV < 2) {
+            await db.execute(
+                'ALTER TABLE schedules ADD COLUMN status TEXT DEFAULT \'pending\'');
+            await db.execute(
+                'ALTER TABLE schedules ADD COLUMN error TEXT DEFAULT \'\'');
+          }
         },
       ),
     );
@@ -87,9 +103,30 @@ class LocalDatabase {
       'schedules',
       {'id': s.id, 'driver': s.driverName, 'contact': s.contactId,
        'body': s.text, 'due_at': s.dueAtUnix, 'tag': s.tag,
-       'done': s.done ? 1 : 0},
+       'done': s.done ? 1 : 0, 'status': s.status, 'error': s.error},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  /// Marca terminal (sent|error|expired) com done=1.
+  Future<void> finishSchedule(String id, String status,
+      {String error = ''}) async {
+    await _db!.update(
+        'schedules',
+        {'status': status, 'error': error, 'done': 1},
+        where: 'id = ?',
+        whereArgs: [id]);
+  }
+
+  /// Reserva atômica: só quem reserva entrega (anti-duplo app x daemon).
+  /// Retorna true se esta chamada ganhou a disputa.
+  Future<bool> claimSchedule(String id) async {
+    final n = await _db!.update(
+        'schedules',
+        {'status': 'sending'},
+        where: 'id = ? AND done = 0 AND status = ?',
+        whereArgs: [id, 'pending']);
+    return n > 0;
   }
 
   Future<void> markScheduleDone(String id) async {
@@ -125,6 +162,8 @@ class LocalDatabase {
               tag: (r['tag'] as String?) ?? '',
               dueAtUnix: r['due_at'] as int,
               done: (r['done'] as int) != 0,
+              status: (r['status'] as String?) ?? 'pending',
+              error: (r['error'] as String?) ?? '',
             ))
         .toList();
   }

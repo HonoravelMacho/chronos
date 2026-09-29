@@ -53,29 +53,52 @@ class AppController extends ChangeNotifier {
       }
     }
 
+    // Tick ao vivo: reserva atômica (se o daemon já pegou, pula) e
+    // registra o desfecho — nada mais "some": erro fica vermelho.
     scheduler.start((job) async {
+      var claimed = false;
+      try {
+        claimed = await db.claimSchedule(job.id);
+      } catch (_) {
+        claimed = true; // sem banco? tenta entregar mesmo assim
+      }
+      if (!claimed) {
+        notifyListeners();
+        return;
+      }
       for (final d in drivers) {
         if (d.name == job.driverName) {
           try {
             final id = await d.sendMessage(MessageRequest(
                 contactId: job.contactId, text: job.text, tag: job.tag));
-            await db.markScheduleDone(job.id);
+            await db.finishSchedule(job.id, 'sent');
             await db.saveMessage(id: id, driver: job.driverName,
                 contact: job.contactId, body: job.text,
                 sentAt: Scheduler.nowUnix(), tag: job.tag);
-          } on DriverException {
-            await db.markScheduleDone(job.id);
+          } on DriverException catch (e) {
+            await db.finishSchedule(job.id, 'error', error: e.message);
           }
           break;
         }
       }
+      await refreshHistory();
       notifyListeners();
     });
 
+    // Restaura pendentes: vencidos com tudo fechado viram 'expired'
+    // (vermelho, consultável) em vez de sumir em silêncio; 'sending'
+    // preso por crash volta a pending (futuro) ou expired (passado).
     final now = Scheduler.nowUnix();
-    for (final s in await db.listSchedules()) {
-      if (s.dueAtUnix <= now) {
-        await db.markScheduleDone(s.id);
+    final stored = await db.listSchedules();
+    for (final s in stored) {
+      if (s.status == 'sending' && s.dueAtUnix > now) {
+        // Crash no meio do envio: devolve à fila.
+        await db.saveSchedule(StoredSchedule(
+            id: s.id, driverName: s.driverName, contactId: s.contactId,
+            text: s.text, tag: s.tag, dueAtUnix: s.dueAtUnix));
+      } else if (s.dueAtUnix <= now) {
+        await db.finishSchedule(s.id, 'expired',
+            error: 'venceu com o app/daemon fechados');
         continue;
       }
       scheduler.schedule(ScheduledJob(
@@ -83,6 +106,7 @@ class AppController extends ChangeNotifier {
           text: s.text, tag: s.tag, dueAtUnix: s.dueAtUnix));
     }
     tags = await db.listTags();
+    await refreshHistory();
     notifyListeners();
   }
 
@@ -136,9 +160,31 @@ class AppController extends ChangeNotifier {
     ];
   }
 
+  /// Histórico completo (enviadas, erros, expiradas) para o calendário.
+  List<StoredSchedule> history = [];
+
+  Future<void> refreshHistory() async {
+    try {
+      history = await db.listSchedules(includeDone: true);
+    } catch (_) {
+      history = [];
+    }
+    notifyListeners();
+  }
+
   List<ScheduledJob> jobsForDay(int y, int m, int d) {
     return scheduler.jobs.where((j) {
       final dt = DateTime.fromMillisecondsSinceEpoch(j.dueAtUnix * 1000);
+      return dt.year == y && dt.month == m && dt.day == d;
+    }).toList()
+      ..sort((a, b) => a.dueAtUnix.compareTo(b.dueAtUnix));
+  }
+
+  /// Histórico do dia (enviadas/erros/expiradas, já finalizadas).
+  List<StoredSchedule> historyForDay(int y, int m, int d) {
+    return history.where((s) {
+      if (!s.done) return false;
+      final dt = DateTime.fromMillisecondsSinceEpoch(s.dueAtUnix * 1000);
       return dt.year == y && dt.month == m && dt.day == d;
     }).toList()
       ..sort((a, b) => a.dueAtUnix.compareTo(b.dueAtUnix));
@@ -158,6 +204,7 @@ class AppController extends ChangeNotifier {
         id: id, driverName: contact.driverName, contactId: contact.id,
         text: text, tag: tag,
         dueAtUnix: due.millisecondsSinceEpoch ~/ 1000));
+    await refreshHistory();
     notifyListeners();
     return id;
   }
@@ -165,7 +212,7 @@ class AppController extends ChangeNotifier {
   Future<void> cancelSchedule(String id) async {
     scheduler.cancel(id);
     await db.deleteSchedule(id);
-    await db.markScheduleDone(id);
+    await refreshHistory();
     notifyListeners();
   }
 

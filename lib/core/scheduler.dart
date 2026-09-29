@@ -43,6 +43,14 @@ class Scheduler extends ChangeNotifier {
     return '$a$b'.substring(0, 16);
   }
 
+  /// Vencido há mais de maxAgeSec? O daemon entrega catch-up até esse
+  /// limite; além dele, vira 'expired' (vermelho) em vez de disparo
+  /// surpresa de mensagem antiga.
+  static bool isStale(int dueAtUnix, int nowUnix,
+      {int maxAgeSec = 24 * 3600}) {
+    return nowUnix - dueAtUnix > maxAgeSec;
+  }
+
   void start(DueCallback onDue) {
     stop();
     _onDue = onDue;

@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_controller.dart';
+import '../core/database.dart';
 import '../core/scheduler.dart';
 import '../ui/hud_panel.dart';
 import '../ui/hud_theme.dart';
@@ -27,6 +28,51 @@ Color _tagColor(String tag, Map<String, String> tags) {
   final v = int.tryParse(h, radix: 16);
   if (v == null) return HudColors.amber;
   return Color(v);
+}
+
+/// Etiqueta de estado: verde enviada · amarelo pendente · vermelho erro.
+Color _statusColor(String status) {
+  switch (status) {
+    case 'sent':
+      return HudColors.matrix;
+    case 'error':
+    case 'expired':
+      return HudColors.danger;
+    default:
+      return HudColors.amber;
+  }
+}
+
+String _statusLabel(String status) {
+  switch (status) {
+    case 'sent':
+      return 'ENVIADA';
+    case 'error':
+      return 'ERRO';
+    case 'expired':
+      return 'EXPIRADA';
+    case 'sending':
+      return 'ENVIANDO';
+    default:
+      return 'PENDENTE';
+  }
+}
+
+Widget _badge(String text, Color color) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+    decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.2),
+        border: Border.all(color: color.withValues(alpha: 0.7))),
+    child: Text(text,
+        style: TextStyle(fontSize: 10, color: color)),
+  );
+}
+
+String _hhmm(int dueAtUnix) {
+  final dt = DateTime.fromMillisecondsSinceEpoch(dueAtUnix * 1000);
+  return '${dt.hour.toString().padLeft(2, '0')}:'
+      '${dt.minute.toString().padLeft(2, '0')}';
 }
 
 class CalendarFullscreenView extends StatefulWidget {
@@ -138,11 +184,23 @@ class _CalendarFullscreenViewState extends State<CalendarFullscreenView> {
                             sel.day == dayNum;
                         final jobs = widget.controller.jobsForDay(
                             _visible.year, _visible.month, dayNum);
+                        final hist = widget.controller.historyForDay(
+                            _visible.year, _visible.month, dayNum);
+                        final errs = hist
+                            .where((h) =>
+                                h.status == 'error' ||
+                                h.status == 'expired')
+                            .length;
+                        final sent = hist
+                            .where((h) => h.status == 'sent')
+                            .length;
                         return _DayCell(
                           day: dayNum,
                           isToday: isToday,
                           isSelected: isSel,
                           jobs: jobs,
+                          sentCount: sent,
+                          errorCount: errs,
                           tagColors: widget.controller.tags,
                           onTap: () => setState(() {
                             _selected = DateTime(_visible.year,
@@ -161,10 +219,12 @@ class _CalendarFullscreenViewState extends State<CalendarFullscreenView> {
             final detail = _DayDetail(
               day: sel,
               jobs: selJobs,
+              history: widget.controller.historyForDay(
+                  sel.year, sel.month, sel.day),
               tagColors: widget.controller.tags,
               onNew: () => _openNew(sel),
-              onDelete: (job) async {
-                await widget.controller.cancelSchedule(job.id);
+              onDelete: (id) async {
+                await widget.controller.cancelSchedule(id);
                 setState(() {});
               },
             );
@@ -242,6 +302,8 @@ class _DayCell extends StatelessWidget {
     required this.isToday,
     required this.isSelected,
     required this.jobs,
+    this.sentCount = 0,
+    this.errorCount = 0,
     required this.tagColors,
     required this.onTap,
     required this.onPlus,
@@ -251,6 +313,8 @@ class _DayCell extends StatelessWidget {
   final bool isToday;
   final bool isSelected;
   final List<ScheduledJob> jobs;
+  final int sentCount;
+  final int errorCount;
   final Map<String, String> tagColors;
   final VoidCallback onTap;
   final VoidCallback onPlus;
@@ -293,20 +357,15 @@ class _DayCell extends StatelessWidget {
                             : HudColors.dim)),
                 const Spacer(),
                 if (jobs.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 5, vertical: 1),
-                    decoration: BoxDecoration(
-                        color: HudColors.amber
-                            .withValues(alpha: 0.2),
-                        border: Border.all(
-                            color: HudColors.amber
-                                .withValues(alpha: 0.7))),
-                    child: Text('${jobs.length}',
-                        style: const TextStyle(
-                            fontSize: 10,
-                            color: HudColors.amber)),
-                  ),
+                  _badge('${jobs.length}', HudColors.amber),
+                if (sentCount > 0) ...[
+                  const SizedBox(width: 3),
+                  _badge('$sentCount', HudColors.matrix),
+                ],
+                if (errorCount > 0) ...[
+                  const SizedBox(width: 3),
+                  _badge('$errorCount', HudColors.danger),
+                ],
               ],
             ),
             const SizedBox(height: 3),
@@ -358,6 +417,7 @@ class _DayDetail extends StatelessWidget {
   const _DayDetail({
     required this.day,
     required this.jobs,
+    required this.history,
     required this.tagColors,
     required this.onNew,
     required this.onDelete,
@@ -365,9 +425,10 @@ class _DayDetail extends StatelessWidget {
 
   final DateTime day;
   final List<ScheduledJob> jobs;
+  final List<StoredSchedule> history;
   final Map<String, String> tagColors;
   final VoidCallback onNew;
-  final ValueChanged<ScheduledJob> onDelete;
+  final ValueChanged<String> onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -382,7 +443,7 @@ class _DayDetail extends StatelessWidget {
             accent: HudColors.matrix,
             icon: Icons.add),
       ],
-      child: jobs.isEmpty
+      child: (jobs.isEmpty && history.isEmpty)
           ? const Center(
               child: Padding(
                 padding: EdgeInsets.all(18),
@@ -393,95 +454,147 @@ class _DayDetail extends StatelessWidget {
                         color: HudColors.dim, fontSize: 11)),
               ),
             )
-          : ListView.builder(
-              itemCount: jobs.length,
-              itemBuilder: (context, i) {
-                final j = jobs[i];
-                final dt = DateTime.fromMillisecondsSinceEpoch(
-                    j.dueAtUnix * 1000);
-                final hh =
-                    dt.hour.toString().padLeft(2, '0');
-                final mm =
-                    dt.minute.toString().padLeft(2, '0');
-                final tc = _tagColor(j.tag, tagColors);
-                return Dismissible(
-                  key: ValueKey(j.id),
-                  direction: DismissDirection.endToStart,
-                  background: Container(
-                      alignment: Alignment.centerRight,
-                      padding:
-                          const EdgeInsets.only(right: 16),
-                      color: HudColors.danger
-                          .withValues(alpha: 0.25),
-                      child: const Icon(Icons.delete,
-                          color: HudColors.danger)),
-                  onDismissed: (_) => onDelete(j),
-                  child: Container(
-                    margin:
-                        const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white
-                          .withValues(alpha: 0.04),
-                      border: Border(
-                          left: BorderSide(
-                              color: tc, width: 3)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text('$hh:$mm',
-                                style: const TextStyle(
-                                    color: HudColors.neon,
-                                    fontWeight:
-                                        FontWeight.bold)),
-                            const SizedBox(width: 8),
-                            if (j.tag.isNotEmpty)
-                              Container(
-                                padding:
-                                    const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 1),
-                                decoration: BoxDecoration(
-                                    color: tc.withValues(
-                                        alpha: 0.2),
-                                    border: Border.all(
-                                        color: tc)),
-                                child: Text(j.tag,
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: tc)),
-                              ),
-                            const Spacer(),
-                            Text(j.driverName,
-                                style: const TextStyle(
-                                    fontSize: 10,
-                                    color: HudColors.dim)),
-                            IconButton(
-                              tooltip: 'Cancelar',
-                              icon: const Icon(Icons.delete_outline,
-                                  size: 16,
-                                  color: HudColors.danger),
-                              onPressed: () => onDelete(j),
-                            ),
-                          ],
-                        ),
-                        Text(j.text,
-                            style: const TextStyle(
-                                fontSize: 12)),
-                        Text(j.contactId,
-                            style: const TextStyle(
-                                fontSize: 10,
-                                color: HudColors.dim)),
-                      ],
+          : ListView(
+              children: [
+                for (final j in jobs)
+                  _dismissible(
+                    key: j.id,
+                    leftColor: _tagColor(j.tag, tagColors),
+                    child: _entryBody(
+                      time: _hhmm(j.dueAtUnix),
+                      status: 'pending',
+                      tag: j.tag,
+                      tagColors: tagColors,
+                      driver: j.driverName,
+                      text: j.text,
+                      contact: j.contactId,
+                      error: '',
+                      onDelete: () => onDelete(j.id),
                     ),
                   ),
-                );
-              },
+                if (history.isNotEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 6),
+                    child: Text('HISTÓRICO // ENVIADAS + ERROS',
+                        style: TextStyle(
+                            color: HudColors.dim,
+                            fontSize: 9,
+                            letterSpacing: 1.6)),
+                  ),
+                for (final h in history)
+                  _dismissible(
+                    key: h.id,
+                    leftColor: _statusColor(h.status),
+                    child: _entryBody(
+                      time: _hhmm(h.dueAtUnix),
+                      status: h.status,
+                      tag: h.tag,
+                      tagColors: tagColors,
+                      driver: h.driverName,
+                      text: h.text,
+                      contact: h.contactId,
+                      error: h.error,
+                      onDelete: () => onDelete(h.id),
+                    ),
+                  ),
+              ],
             ),
+    );
+  }
+
+  Widget _dismissible(
+      {required String key,
+      required Color leftColor,
+      required Widget child}) {
+    return Dismissible(
+      key: ValueKey(key),
+      direction: DismissDirection.endToStart,
+      background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 16),
+          color: HudColors.danger.withValues(alpha: 0.25),
+          child:
+              const Icon(Icons.delete, color: HudColors.danger)),
+      onDismissed: (_) => onDelete(key),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.04),
+          border: Border(left: BorderSide(color: leftColor, width: 3)),
+        ),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _entryBody(
+      {required String time,
+      required String status,
+      required String tag,
+      required Map<String, String> tagColors,
+      required String driver,
+      required String text,
+      required String contact,
+      required String error,
+      required VoidCallback onDelete}) {
+    final sc = _statusColor(status);
+    final tc = _tagColor(tag, tagColors);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(time,
+                style: const TextStyle(
+                    color: HudColors.neon,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                  color: sc.withValues(alpha: 0.18),
+                  border: Border.all(color: sc)),
+              child: Text(_statusLabel(status),
+                  style: TextStyle(fontSize: 9, color: sc)),
+            ),
+            if (tag.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                    color: tc.withValues(alpha: 0.2),
+                    border: Border.all(color: tc)),
+                child: Text(tag,
+                    style: TextStyle(fontSize: 10, color: tc)),
+              ),
+            ],
+            const Spacer(),
+            Text(driver,
+                style: const TextStyle(
+                    fontSize: 10, color: HudColors.dim)),
+            IconButton(
+              tooltip: 'Apagar',
+              icon: const Icon(Icons.delete_outline,
+                  size: 16, color: HudColors.danger),
+              onPressed: onDelete,
+            ),
+          ],
+        ),
+        Text(text, style: const TextStyle(fontSize: 12)),
+        Text(contact,
+            style:
+                const TextStyle(fontSize: 10, color: HudColors.dim)),
+        if (error.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(error,
+                style: const TextStyle(
+                    fontSize: 10, color: HudColors.danger)),
+          ),
+      ],
     );
   }
 }

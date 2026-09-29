@@ -144,6 +144,11 @@ id local e deixe o `Scheduler` disparar; nunca faça I/O na thread da UI.
   translúcidas, miniaturas das mensagens (até 3 por dia + contador),
   etiquetas coloridas do SQLite, swipe troca de mês, tap seleciona,
   `Dismissible`/botão apaga (CRUD local), `+ AGENDAR` cria.
+- **Estados da mensagem (sem nada que "suma"):** etiqueta em cada item —
+  🟡 `PENDENTE` · 🟢 `ENVIADA` · 🔴 `ERRO`/`EXPIRADA` (com o motivo).
+  O calendário mostra o histórico do dia (enviadas + erros) com os
+  contadores verde/vermelho nas células. Reserva atômica no banco impede
+  entrega dupla app × daemon; catch-up do daemon até 24h.
 - **Seletor tático:** lista unificada Contatos/Grupos/Canais/Comunidades
   (WhatsApp + Telegram) com filtro instantâneo `>_` estilo terminal e chips
   por kind/driver; grade 2 colunas no desktop, lista no mobile.
