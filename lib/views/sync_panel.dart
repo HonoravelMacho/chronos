@@ -34,6 +34,7 @@ class _SyncPanelState extends State<SyncPanel> {
   bool _loaded = false;
   String? _error;
   String? _probe;
+  bool _probeOk = false;
   String? _pairCode;
   bool _probing = false;
   bool _pairing = false;
@@ -80,7 +81,7 @@ class _SyncPanelState extends State<SyncPanel> {
     );
   }
 
-  /// Sonda gráfica host:porta — diz se a porta está aberta e a latência.
+  /// Sonda gráfica completa: porta + "é a Evolution?" + "a chave vale?".
   Future<void> _probePort() async {
     final wa = _wa;
     if (wa == null) return;
@@ -89,13 +90,16 @@ class _SyncPanelState extends State<SyncPanel> {
     setState(() {
       _probing = true;
       _probe = null;
+      _probeOk = false;
       _error = null;
     });
     try {
-      final ms = await wa.probePortMs();
+      final r = await wa.probeServer();
       if (mounted) {
-        setState(() => _probe =
-            'PORTA ${cfg.port} ABERTA EM ${cfg.host} (${ms}ms) // prossiga');
+        setState(() {
+          _probe = r.detail;
+          _probeOk = r.ok;
+        });
       }
     } on DriverException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -353,8 +357,11 @@ class _SyncPanelState extends State<SyncPanel> {
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(_probe!,
-                        style: const TextStyle(
-                            color: HudColors.matrix,
+                        style: TextStyle(
+                            color: _probeOk
+                                ? HudColors.matrix
+                                : HudColors.danger,
+                            fontWeight: FontWeight.bold,
                             fontSize: 11)),
                   ),
                 const SizedBox(height: 8),
@@ -438,6 +445,27 @@ class _SyncPanelState extends State<SyncPanel> {
           _cfgField(_phone, 'SEU NÚMERO // WHATSAPP',
               'ex.: 5511999990001',
               numeric: true),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _phone,
+            builder: (context, v, _) {
+              final n =
+                  v.text.replaceAll(RegExp(r'\D'), '').length;
+              final ok = n >= 10 && n <= 15;
+              return Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                    '$n dígitos — precisa de 10 a 15 com DDI+DDD '
+                    '(ex.: 55 + 11 + 999990001)',
+                    style: TextStyle(
+                        color: v.text.isEmpty
+                            ? HudColors.dim
+                            : ok
+                                ? HudColors.matrix
+                                : HudColors.amber,
+                        fontSize: 10)),
+              );
+            },
+          ),
           const SizedBox(height: 8),
           NeonButton(
               label: _pairing ? 'GERANDO...' : 'GERAR CÓDIGO',

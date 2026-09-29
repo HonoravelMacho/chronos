@@ -86,3 +86,17 @@ class DriverRegistry {
   List<NetworkDriver> createAll() =>
       _factories.values.map((f) => f()).toList();
 }
+
+/// Resultado do teste de servidor (botão TESTAR no SyncPanel).
+enum ProbeKind { ok, wrongKey, notEvolution, unreachable, badUrl }
+
+class ServerProbe {
+  ServerProbe(
+      {required this.ok, required this.kind, required this.detail,
+      required this.latencyMs});
+
+  final bool ok;
+  final ProbeKind kind;
+  final String detail;
+  final int latencyMs;
+}

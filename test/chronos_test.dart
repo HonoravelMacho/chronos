@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:chronos_hub/core/driver_registry.dart';
 import 'package:chronos_hub/core/evolution_config.dart';
@@ -172,6 +173,48 @@ void main() {
       expect(await d.connect(), isTrue);
       expect(d.status.state, 'connecting');
       expect(d.status.connected, isFalse);
+    });
+
+    Future<WhatsAppDriver> probeDriver(int status, String body) async {
+      final server =
+          await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((s) => s.destroy());
+      final client = MockClient((req) async {
+        if (req.url.path == '/instance/fetchInstances') {
+          return http.Response(body, status);
+        }
+        return http.Response('{}', 200);
+      });
+      final d = WhatsAppDriver(
+          config: EvolutionConfig(
+              baseUrl: 'http://127.0.0.1:${server.port}',
+              apiKey: 'k'),
+          client: client);
+      addTearDown(server.close);
+      return d;
+    }
+
+    test('probeServer: Evolution + chave válida = OK', () async {
+      final r = await (await probeDriver(200, '[]')).probeServer();
+      expect(r.ok, isTrue);
+      expect(r.kind, ProbeKind.ok);
+    });
+
+    test('probeServer: 401 = CHAVE INVÁLIDA', () async {
+      final r =
+          await (await probeDriver(401, '{"message":"unauthorized"}'))
+              .probeServer();
+      expect(r.ok, isFalse);
+      expect(r.kind, ProbeKind.wrongKey);
+      expect(r.detail, contains('401'));
+    });
+
+    test('probeServer: 404 = NÃO É A EVOLUTION', () async {
+      final r =
+          await (await probeDriver(404, '{"message":"Not found"}'))
+              .probeServer();
+      expect(r.ok, isFalse);
+      expect(r.kind, ProbeKind.notEvolution);
     });
 
     test('probePortMs falha legível com porta fechada', () async {

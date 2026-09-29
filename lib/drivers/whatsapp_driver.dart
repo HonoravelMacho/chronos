@@ -199,6 +199,8 @@ class WhatsAppDriver extends NetworkDriver {
     }
   }
 
+  /// Resultado do teste de servidor (botão TESTAR).
+  /// (Tipos públicos em i_network_driver.dart: ProbeKind/ServerProbe.)
   /// Teste gráfico de porta (botão TESTAR): abre TCP contra host:porta
   /// e retorna a latência em ms. Falha vira DriverException legível
   /// ("porta fechada", "host inalcançável", timeout...).
@@ -269,6 +271,78 @@ class WhatsAppDriver extends NetworkDriver {
           'Evolution não retornou código (resposta sem pairingCode)');
     }
     return out;
+  }
+
+  /// Veredito completo do botão TESTAR: porta TCP + identidade HTTP
+  /// (é a Evolution?) + validade da chave (401?). Distingue os 3 erros
+  /// que o usuário mais confunde: porta fechada, servidor errado (404)
+  /// e chave errada (401).
+  Future<ServerProbe> probeServer(
+      {Duration timeout = const Duration(seconds: 5)}) async {
+    final uri = Uri.tryParse(_base);
+    if (uri == null || uri.host.isEmpty) {
+      return ServerProbe(
+          ok: false, kind: ProbeKind.badUrl,
+          detail: 'servidor inválido: "$_base"',
+          latencyMs: 0);
+    }
+    final sw = Stopwatch()..start();
+    http.Response res;
+    try {
+      res = await _client
+          .get(Uri.parse('$_base/instance/fetchInstances'),
+              headers: _headers)
+          .timeout(timeout);
+    } on SocketException catch (e) {
+      sw.stop();
+      return ServerProbe(
+          ok: false, kind: ProbeKind.unreachable,
+          detail:
+              'porta ${uri.hasPort ? uri.port : 80} FECHADA em ${uri.host} '
+              '(${e.osError?.message ?? e.message}) — confira IP/porta e se '
+              'a Evolution está no ar',
+          latencyMs: sw.elapsedMilliseconds);
+    } on TimeoutException {
+      sw.stop();
+      return ServerProbe(
+          ok: false, kind: ProbeKind.unreachable,
+          detail:
+              'sem resposta de $_base em ${timeout.inSeconds}s — mesmo Wi-Fi? '
+              'firewall liberado?',
+          latencyMs: sw.elapsedMilliseconds);
+    }
+    sw.stop();
+    final ms = sw.elapsedMilliseconds;
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      return ServerProbe(
+          ok: false, kind: ProbeKind.wrongKey,
+          detail:
+              'CHAVE INVÁLIDA (${res.statusCode}): a API KEY digitada NÃO é a '
+              'do container (AUTHENTICATION_API_KEY). Confira e tente de novo',
+          latencyMs: ms);
+    }
+    if (res.statusCode == 200) {
+      try {
+        jsonDecode(res.body);
+      } catch (_) {
+        return ServerProbe(
+            ok: false, kind: ProbeKind.notEvolution,
+            detail:
+                'respondeu 200 mas não parece a Evolution — confira o IP',
+            latencyMs: ms);
+      }
+      return ServerProbe(
+          ok: true, kind: ProbeKind.ok,
+          detail:
+              'EVOLUTION OK · CHAVE VÁLIDA (${ms}ms) // pode SALVAR + CONECTAR',
+          latencyMs: ms);
+    }
+    return ServerProbe(
+        ok: false, kind: ProbeKind.notEvolution,
+        detail:
+            'HTTP ${res.statusCode} em $_base — isso NÃO é a Evolution '
+            '(404 = IP/porta errados ou outro app na porta)',
+        latencyMs: ms);
   }
 
   /// QR de pareamento (GET /instance/connect) como bytes de imagem.
