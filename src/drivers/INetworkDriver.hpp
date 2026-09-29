@@ -11,6 +11,17 @@
 #include <string>
 #include <vector>
 
+// Windows.h (puxado por curl/system.h, raylib, etc.) define SendMessage como
+// macro (SendMessageA/W) e quebra a declaração abaixo. Neutraliza aqui; cada
+// .cpp que incluir <windows.h>/<curl.h> DEPOIS deste header deve repetir o
+// #undef após os includes (ver WhatsAppDriver.cpp).
+#ifdef SendMessage
+#undef SendMessage
+#endif
+#ifdef DrawText
+#undef DrawText
+#endif
+
 namespace chronos {
 
 struct Contact {

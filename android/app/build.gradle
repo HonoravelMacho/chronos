@@ -1,0 +1,56 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.chronos.hub'
+    compileSdk 34
+    buildToolsVersion '34.0.0'
+    ndkVersion '27.0.12077973'
+
+    defaultConfig {
+        applicationId 'com.chronos.hub'
+        minSdk 29
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0'
+
+        // APK universal: ARM64 (alvo principal) + ARMv7 (compatibilidade).
+        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
+
+        externalNativeBuild {
+            cmake {
+                // Raylib usa PLATFORM=Android; sem curl/TDLib no mobile.
+                arguments '-DPLATFORM=Android',
+                          '-DANDROID_STL=c++_shared',
+                          '-DCHRONOS_ENABLE_CURL=OFF',
+                          '-DCHRONOS_ENABLE_TDLIB=OFF',
+                          '-DCHRONOS_ENABLE_SQLCIPHER=OFF',
+                          '-DCMAKE_BUILD_TYPE=Release'
+                targets 'chronos_native'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path '../../CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

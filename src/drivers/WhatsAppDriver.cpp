@@ -13,7 +13,16 @@
 #include "core/DriverRegistry.hpp"
 
 #if CHRONOS_HAS_CURL
-#include <curl/curl.h>
+#include <curl/curl.h>  // no Windows puxa <windows.h> → macros SendMessage/DrawText
+#endif
+
+// Neutraliza as macros do Windows.h APÓS todos os includes (ordem importa:
+// curl.h redefine a macro depois do #undef feito em INetworkDriver.hpp).
+#ifdef SendMessage
+#undef SendMessage
+#endif
+#ifdef DrawText
+#undef DrawText
 #endif
 
 namespace chronos {

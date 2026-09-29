@@ -84,7 +84,7 @@ jobs:
             chronos-windows-x86_64.zip
             build/Release/chronos.exe
 
-  # ── Android: .apk universal (ARM64) via NDK ────────────────────────────────
+  # ── Android: .apk universal (ARM64+ARMv7) via Gradle+NDK ───────────────────
   android:
     runs-on: ubuntu-22.04
     steps:
@@ -96,45 +96,41 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK/NDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK + CMake
+      # NOTA: android-actions/setup-android@v3 está quebrado (sdkmanager "tools"
+      # removido). O runner já traz o SDK em $ANDROID_SDK_ROOT — instalamos só
+      # os pacotes que faltam, aceitando as licenças de forma não-interativa.
+      - name: Install Android packages
         run: |
-          sdkmanager --install "ndk;25.2.9519653" "cmake;3.22.1" "platforms;android-33" "build-tools;33.0.2"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> $GITHUB_ENV
+          echo "SDK=$ANDROID_SDK_ROOT"
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager --install "platform-tools" "platforms;android-34" \
+            "build-tools;34.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
 
-      - name: Configure (ARM64)
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      # APK debug = assinado com chave de debug, instalável direto, universal
+      # (arm64-v8a + armeabi-v7a). Para APK release assinado, adicione secrets
+      # ANDROID_KEYSTORE_* + bloco signingConfigs (ver README).
+      - name: Build universal APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Rename APK
         run: |
-          cmake -S . -B build-android -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-29 \
-            -DCHRONOS_ENABLE_CURL=OFF
-
-      - name: Build
-        run: cmake --build build-android --parallel
-
-      # Empacota o binário em APK debug/universal de alta compatibilidade.
-      # Para APK assinado de release, adicione secrets ANDROID_KEYSTORE_*.
-      - name: Build APK wrapper (gradle)
-        run: |
-          if [ -f android/build.gradle ]; then
-            cd android && ./gradlew assembleRelease
-          else
-            echo "Sem wrapper android/ — gerando APK mínimo via sdkmanager/APK shell (placeholder)."
-            mkdir -p apk-out
-            cp build-android/chronos apk-out/libchronos.so || true
-          fi
+          cp android/app/build/outputs/apk/debug/app-debug.apk \
+             chronos-android-universal.apk
+          ls -la chronos-android-universal.apk
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
           name: chronos-android
           path: |
+            chronos-android-universal.apk
             android/app/build/outputs/apk/**/*.apk
-            apk-out/**
 
   # ── Publica tudo na Release do GitHub ──────────────────────────────────────
   publish:

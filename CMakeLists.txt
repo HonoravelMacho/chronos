@@ -19,6 +19,7 @@ option(CHRONOS_BUILD_TESTS   "Compila smoke tests" OFF)
 # ── Flags por plataforma ─────────────────────────────────────────────────────
 if(MSVC)
     add_compile_options(/W4 /permissive-)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)  # getenv/localtime: warnings viram ruído no MSVC
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -110,63 +111,90 @@ set(CHRONOS_HEADERS
 )
 
 add_executable(chronos ${CHRONOS_SOURCES} ${CHRONOS_HEADERS})
-target_include_directories(chronos PRIVATE src)
+
+# ── Alvo Android (APK NativeActivity): lib compartilhada + glue nativo ───────
+# O Gradle (android/app/build.gradle) compila só este target via
+# externalNativeBuild. Em desktop este bloco é ignorado.
+if(ANDROID)
+    add_library(chronos_native SHARED
+        ${CHRONOS_SOURCES}
+        "${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c"
+    )
+    target_include_directories(chronos_native PRIVATE
+        src
+        "${ANDROID_NDK}/sources/android/native_app_glue"
+    )
+    # Raylib Android exige libs de sistema (log/android/EGL/GLES/audio).
+    target_link_libraries(chronos_native PRIVATE log android EGL GLESv2 OpenSLES)
+endif()
+
+function(chronos_apply_deps tgt)
+    target_include_directories(${tgt} PRIVATE src)
 
 # ── Link ─────────────────────────────────────────────────────────────────────
 if(CHRONOS_ENABLE_GUI AND TARGET raylib)
-    target_link_libraries(chronos PRIVATE raylib)
-    target_compile_definitions(chronos PRIVATE CHRONOS_HAS_RAYLIB=1)
+    target_link_libraries(${tgt} PRIVATE raylib)
+    target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_RAYLIB=1)
 else()
-    target_compile_definitions(chronos PRIVATE CHRONOS_HAS_RAYLIB=0)
+    target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_RAYLIB=0)
     message(STATUS "[CHRONOS] Build headless (sem raylib) — HUD roda em modo console stub.")
 endif()
 
 if(CURL_FOUND)
-    target_link_libraries(chronos PRIVATE CURL::libcurl)
-    target_compile_definitions(chronos PRIVATE CHRONOS_HAS_CURL=1)
+    target_link_libraries(${tgt} PRIVATE CURL::libcurl)
+    target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_CURL=1)
 else()
-    target_compile_definitions(chronos PRIVATE CHRONOS_HAS_CURL=0)
+    target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_CURL=0)
 endif()
 
 if(SQLite3_FOUND OR SQLite3_LIBRARY OR EXISTS "/usr/include/sqlite3.h")
     if(TARGET SQLite::SQLite3)
-        target_link_libraries(chronos PRIVATE SQLite::SQLite3)
+        target_link_libraries(${tgt} PRIVATE SQLite::SQLite3)
     else()
-        target_link_libraries(chronos PRIVATE sqlite3)
+        target_link_libraries(${tgt} PRIVATE sqlite3)
     endif()
-    target_compile_definitions(chronos PRIVATE CHRONOS_HAS_SQLITE=1)
+    target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_SQLITE=1)
 else()
     # Fallback: Database.cpp tem backend em memória se sqlite3.h ausente.
-    target_compile_definitions(chronos PRIVATE CHRONOS_HAS_SQLITE=0)
+    target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_SQLITE=0)
     message(STATUS "[CHRONOS] sqlite3 não encontrado — Database usa backend em memória.")
 endif()
 
 if(SQLCIPHER_FOUND)
-    target_include_directories(chronos PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
-    target_link_libraries(chronos PRIVATE ${SQLCIPHER_LIBRARIES})
-    target_compile_definitions(chronos PRIVATE CHRONOS_HAS_SQLCIPHER=1)
+    target_include_directories(${tgt} PRIVATE ${SQLCIPHER_INCLUDE_DIRS})
+    target_link_libraries(${tgt} PRIVATE ${SQLCIPHER_LIBRARIES})
+    target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_SQLCIPHER=1)
 else()
-    target_compile_definitions(chronos PRIVATE CHRONOS_HAS_SQLCIPHER=0)
+    target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_SQLCIPHER=0)
 endif()
 
 if(CHRONOS_ENABLE_TDLIB AND Td_FOUND)
-    target_link_libraries(chronos PRIVATE Td::TdStatic)
-    target_compile_definitions(chronos PRIVATE CHRONOS_HAS_TDLIB=1)
+    target_link_libraries(${tgt} PRIVATE Td::TdStatic)
+    target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_TDLIB=1)
 else()
-    target_compile_definitions(chronos PRIVATE CHRONOS_HAS_TDLIB=0)
+    target_compile_definitions(${tgt} PRIVATE CHRONOS_HAS_TDLIB=0)
 endif()
 
 # Threads + filesystem (scheduler / sqlite)
 find_package(Threads REQUIRED)
-target_link_libraries(chronos PRIVATE Threads::Threads)
+target_link_libraries(${tgt} PRIVATE Threads::Threads)
 if(UNIX AND NOT APPLE AND NOT ANDROID)
-    target_link_libraries(chronos PRIVATE dl m)
+    target_link_libraries(${tgt} PRIVATE dl m)
+endif()
+endfunction()
+
+chronos_apply_deps(chronos)
+if(ANDROID)
+    chronos_apply_deps(chronos_native)
 endif()
 
 # ── Instalação / empacotamento (CPack: DEB, RPM, TGZ, ZIP) ───────────────────
 include(GNUInstallDirs)
 install(TARGETS chronos RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(DIRECTORY assets/ DESTINATION share/chronos/assets)
+# assets/ pode não existir no runner (dirs vazios não entram no git) — não quebrar o CPack.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    install(DIRECTORY assets/ DESTINATION share/chronos/assets)
+endif()
 
 set(CPACK_PACKAGE_NAME "chronos")
 set(CPACK_PACKAGE_VENDOR "CHRONOS Contributors")

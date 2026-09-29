@@ -170,16 +170,19 @@ cmake --build build --config Release --parallel
 .\build\Release\chronos.exe --smoke
 ```
 
-### Android (ARM64 via NDK)
+### Android (ARM64/ARMv7 via NDK + Gradle)
 
 ```bash
-sdkmanager --install "ndk;25.2.9519653" "cmake;3.22.1" "platforms;android-33"
-cmake -S . -B build-android -G Ninja \
-  -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
-  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 \
-  -DCHRONOS_ENABLE_CURL=OFF
-cmake --build build-android --parallel
+sdkmanager --install "platform-tools" "platforms;android-34" \
+  "build-tools;34.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
+cd android && gradle assembleDebug   # APK universal em app/build/outputs/apk/debug/
 ```
+
+O wrapper `android/` compila o target `chronos_native` (mesmos fontes do
+desktop + `android_native_app_glue`) via `externalNativeBuild` e empacota um
+**`.apk` universal debug** (`arm64-v8a` + `armeabi-v7a`, assinado com chave de
+debug, instalável direto). Para APK release assinado, adicione
+`signingConfigs` com os secrets `ANDROID_KEYSTORE_*`.
 
 O workflow `release.yml` gera o **`.apk` universal** a cada tag `v*`.
 Para APK assinado, configure os secrets `ANDROID_KEYSTORE_*` (ver workflow).
