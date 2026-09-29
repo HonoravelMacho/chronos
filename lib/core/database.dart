@@ -1,6 +1,8 @@
 // CHRONOS — SQLite local (port de Database, mesmo schema).
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:io';
+
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -32,7 +34,11 @@ class LocalDatabase {
     if (_db != null) return;
     sqfliteFfiInit();
     final dir = await getApplicationSupportDirectory();
-    final path = p.join(dir.path, 'chronos', 'chronos.db');
+    // O openDatabase NÃO cria diretórios-pai: sem isso, crash silencioso
+    // no primeiro boot (principal causa de "clicou e nem abriu" no Linux).
+    final dbDir = Directory(p.join(dir.path, 'chronos'));
+    await dbDir.create(recursive: true);
+    final path = p.join(dbDir.path, 'chronos.db');
     _db = await databaseFactoryFfi.openDatabase(
       path,
       options: OpenDatabaseOptions(

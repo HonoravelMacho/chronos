@@ -196,6 +196,34 @@ class WhatsAppDriver extends NetworkDriver {
     }
   }
 
+  /// Teste gráfico de porta (botão TESTAR): abre TCP contra host:porta
+  /// e retorna a latência em ms. Falha vira DriverException legível
+  /// ("porta fechada", "host inalcançável", timeout...).
+  Future<int> probePortMs(
+      {Duration timeout = const Duration(seconds: 4)}) async {
+    final uri = Uri.tryParse(_base);
+    if (uri == null || uri.host.isEmpty) {
+      throw DriverException('servidor inválido: "$_base"');
+    }
+    final port = uri.hasPort ? uri.port : 80;
+    final sw = Stopwatch()..start();
+    try {
+      final sock = await Socket.connect(uri.host, port, timeout: timeout);
+      sock.destroy();
+    } on SocketException catch (e) {
+      throw DriverException(
+          'porta $port FECHADA em ${uri.host} (${e.osError?.message ?? e.message}) — '
+          'confira IP/porta e se a Evolution está no ar');
+    } on TimeoutException {
+      throw DriverException(
+          'sem resposta de ${uri.host}:$port em ${timeout.inSeconds}s — '
+          'mesmo Wi-Fi? firewall liberado?');
+    } finally {
+      sw.stop();
+    }
+    return sw.elapsedMilliseconds;
+  }
+
   /// QR de pareamento (GET /instance/connect) como bytes PNG.
   Future<Uint8List> fetchQrPng() async {
     final j = await _json('GET', '/instance/connect/${_config.instance}');

@@ -16,6 +16,47 @@ class EvolutionConfig {
 
   bool get isConfigured => apiKey.isNotEmpty;
 
+  /// Host/porta editáveis separadamente na UI (passo "personalizável").
+  String get scheme {
+    final u = Uri.tryParse(baseUrl);
+    if (u != null && (u.scheme == 'http' || u.scheme == 'https')) {
+      return u.scheme;
+    }
+    return 'http';
+  }
+
+  String get host {
+    final u = Uri.tryParse(baseUrl);
+    final h = u?.host ?? '';
+    if (h.isNotEmpty) return h;
+    // Aceita "192.168.1.20:8080" ou "192.168.1.20" sem esquema.
+    final raw = baseUrl.replaceAll(RegExp(r'^https?://'), '');
+    return raw.split('/').first.split(':').first;
+  }
+
+  int get port {
+    final u = Uri.tryParse(baseUrl);
+    if (u != null && u.hasPort) return u.port;
+    final raw = baseUrl.replaceAll(RegExp(r'^https?://'), '');
+    final parts = raw.split('/').first.split(':');
+    if (parts.length > 1) return int.tryParse(parts[1]) ?? 8080;
+    return 8080;
+  }
+
+  static String buildBaseUrl(
+      {String scheme = 'http', required String host, required int port}) {
+    return '$scheme://${host.trim()}:$port';
+  }
+
+  EvolutionConfig copyWith({String? baseUrl, String? apiKey,
+    String? instance}) {
+    return EvolutionConfig(
+      baseUrl: baseUrl ?? this.baseUrl,
+      apiKey: apiKey ?? this.apiKey,
+      instance: instance ?? this.instance,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
         'base_url': baseUrl,
         'api_key': apiKey,

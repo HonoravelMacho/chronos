@@ -116,5 +116,39 @@ void main() {
       expect(d.status.state, 'connecting');
       expect(d.status.connected, isFalse);
     });
+
+    test('probePortMs falha legível com porta fechada', () async {
+      final d = WhatsAppDriver(
+          config: EvolutionConfig(baseUrl: 'http://127.0.0.1:9'),
+          client: MockClient((_) async => http.Response('{}', 200)));
+      try {
+        await d.probePortMs(timeout: const Duration(seconds: 2));
+        fail('deveria lançar DriverException');
+      } on DriverException catch (e) {
+        expect(e.message, contains('9'));
+      }
+    });
+  });
+
+  group('EvolutionConfig (host/porta)', () {
+    test('parseia host e porta de URL completa', () {
+      final c = EvolutionConfig(baseUrl: 'http://192.168.1.20:8081');
+      expect(c.scheme, 'http');
+      expect(c.host, '192.168.1.20');
+      expect(c.port, 8081);
+    });
+
+    test('porta padrão 8080 quando ausente', () {
+      final c = EvolutionConfig(baseUrl: 'http://localhost');
+      expect(c.host, 'localhost');
+      expect(c.port, 8080);
+    });
+
+    test('buildBaseUrl compõe esquema://host:porta', () {
+      expect(
+          EvolutionConfig.buildBaseUrl(
+              host: '192.168.1.20', port: 8081),
+          'http://192.168.1.20:8081');
+    });
   });
 }
