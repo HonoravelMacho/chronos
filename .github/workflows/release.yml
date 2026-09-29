@@ -84,7 +84,8 @@ jobs:
           set -eux
           TAG="${GITHUB_REF_NAME#v}"
           BUNDLE="build/linux/x64/release/bundle"
-          STAGE="dist/linux-stage"
+          # Stage FORA de dist/: dist/ contém SOMENTE os pacotes finais.
+          STAGE="build/pkg-stage"
           rm -rf dist "$STAGE"
           mkdir -p "$STAGE/opt/chronos" dist
           cp -r "$BUNDLE/." "$STAGE/opt/chronos/"
@@ -191,8 +192,17 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: List artifacts
+        run: ls -laR dist | head -n 40
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/**/*
+          # Padrões explícitos: só pacotes finais, nunca arquivos do bundle.
+          files: |
+            dist/*.apk
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.exe
           generate_release_notes: true
