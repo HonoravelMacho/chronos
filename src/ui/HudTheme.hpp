@@ -39,4 +39,27 @@ inline constexpr int   kFontSizeTitle = 22;
 inline constexpr int   kFontSizeBody  = 16;
 inline constexpr int   kFontSizeMono  = 14;
 
+// Escala de UI por DPI: em celular (2400px+) fontes de 14px viram microtexto.
+// Base 720p => 1.0; telefones chegam a ~2.5. Desktop 720p fica inalterado.
+#if CHRONOS_HAS_RAYLIB
+inline float UiScale() {
+    int h = GetScreenHeight();
+    if (h <= 0) h = 720;
+    float s = (float)h / 720.0f;
+    if (s < 1.0f) s = 1.0f;
+    if (s > 2.5f) s = 2.5f;
+    return s;
+}
+#else
+inline float UiScale() { return 1.0f; }
+#endif
+
+inline int ScaledFont(int base) { return (int)(base * UiScale() + 0.5f); }
+// Alvo mínimo de toque (Material: 48dp) em pixels físicos.
+inline float TouchTarget() {
+    float t = 48.0f * UiScale();
+    if (t < 44.0f) t = 44.0f;
+    return t;
+}
+
 } // namespace chronos::HudTheme

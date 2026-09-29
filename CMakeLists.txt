@@ -207,6 +207,13 @@ install(TARGETS chronos RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     install(DIRECTORY assets/ DESTINATION share/chronos/assets)
 endif()
+# Atalho do menu ( resolve ".deb instala mas não aparece"): .desktop + ícone.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/chronos.desktop")
+    install(FILES chronos.desktop DESTINATION share/applications)
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/chronos.svg")
+    install(FILES assets/icons/chronos.svg DESTINATION share/icons/hicolor/scalable/apps)
+endif()
 
 set(CPACK_PACKAGE_NAME "chronos")
 set(CPACK_PACKAGE_VENDOR "CHRONOS Contributors")

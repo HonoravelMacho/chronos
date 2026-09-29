@@ -159,7 +159,8 @@ cmake --build build --parallel
 ./build/chronos           # HUD
 ```
 
-Pacotes: `cd build && cpack -G "DEB;RPM;TGZ"`.
+Pacotes: `cd build && cpack -G "DEB;RPM;TGZ"`. O `.deb`/`.rpm` instala
+`chronos` + atalho do menu (`chronos.desktop`) + ícone, sem passo manual.
 
 ### Windows (x86_64, PowerShell)
 
@@ -264,6 +265,10 @@ ctest --test-dir build --output-on-failure   # inclui e2e_whatsapp_mock
   scanlines CRT e tipografia mono tática.
 - **Responsiva:** `LayoutManager::ComputeLayout()` — 3 colunas no desktop
   (disparo · calendário · contatos) e pilha vertical no mobile.
+- **Mobile/touch:** sem mouse, o dedo é o ponteiro (`Hud::PollPointer`):
+  tap = clique, arrastar na lista rola, swipe horizontal no calendário troca
+  de mês, tap no dia/contato seleciona. Fontes e alvos de toque escalam com
+  o DPI (`HudTheme::UiScale`, mínimo 44–48px).
 - **Calendário HUD:** grade mensal, dots de agendamentos, `NextMonth()/PrevMonth()`.
 - **Contatos:** matriz unificada (contatos/grupos/canais/comunidades) + busca `>_` instantânea.
 - **Etiquetas:** CRUD persistido (`tags`), cores por objetivo.

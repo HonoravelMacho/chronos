@@ -16,10 +16,15 @@ public:
     // Navegação (ligável a botões HUD / gestos mobile).
     void NextMonth() { monthOff_++; }
     void PrevMonth() { monthOff_--; }
+    int SelectedDay() const { return selectedDay_; }
 
 private:
     Scheduler* sched_ = nullptr;
     int monthOff_ = 0;
+    int selectedDay_ = -1;  // dia tocado (1-31, -1 = nenhum)
+    float pressX_ = 0;      // swipe horizontal p/ trocar de mês
+    bool pressing_ = false;
+    bool justSwiped_ = false;  // release foi swipe, não tap
 };
 
 } // namespace chronos

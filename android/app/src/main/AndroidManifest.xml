@@ -8,6 +8,8 @@
 
     <application
         android:label="CHRONOS"
+        android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
         android:allowBackup="false"
         android:supportsRtl="true">

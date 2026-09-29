@@ -79,20 +79,24 @@ int App::Run(int argc, char** argv) {
 
         ClearBackground(HudTheme::Bg());
         Hud::DrawTopBar(window_.Width(), drivers_);
+        // A barra escala com DPI (celular: ~128px) — painéis começam abaixo dela.
+        const float top = (float)Hud::TopBarHeight() + 8;
+        const float W = (float)window_.Width();
+        const float H = (float)window_.Height();
         if (vertical) {
             // Layout mobile: abas empilhadas.
-            Hud::DrawPanel(8, 64, (float)window_.Width() - 16, 220, "DISPARO");
-            Hud::DrawStatusLeds(24, 120, drivers_);
-            calendar.Draw(8, 292, (float)window_.Width() - 16, 240);
-            contacts.Draw(8, 540, (float)window_.Width() - 16,
-                          (float)window_.Height() - 548);
+            const float dispH = 220, calH = 240;
+            Hud::DrawPanel(8, top, W - 16, dispH, "DISPARO");
+            Hud::DrawStatusLeds(24, top + 56, drivers_);
+            calendar.Draw(8, top + dispH + 8, W - 16, calH);
+            contacts.Draw(8, top + dispH + calH + 16, W - 16,
+                          H - (top + dispH + calH + 24));
         } else {
             // Layout desktop horizontal: 3 colunas.
-            const float w = (float)window_.Width();
-            Hud::DrawPanel(8, 64, w * 0.28f - 12, (float)window_.Height() - 72, "DISPARO");
-            Hud::DrawStatusLeds(24, 120, drivers_);
-            calendar.Draw(w * 0.28f + 4, 64, w * 0.42f - 8, (float)window_.Height() - 72);
-            contacts.Draw(w * 0.70f + 4, 64, w * 0.30f - 12, (float)window_.Height() - 72);
+            Hud::DrawPanel(8, top, W * 0.28f - 12, H - top - 8, "DISPARO");
+            Hud::DrawStatusLeds(24, top + 56, drivers_);
+            calendar.Draw(W * 0.28f + 4, top, W * 0.42f - 8, H - top - 8);
+            contacts.Draw(W * 0.70f + 4, top, W * 0.30f - 12, H - top - 8);
         }
         Hud::DrawScanlines(window_.Width(), window_.Height(), frames++);
         window_.EndFrame();

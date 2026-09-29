@@ -19,10 +19,16 @@ public:
 
     void Draw(float x, float y, float w, float h);
 
+    /// Contato tocado/selecionado (-1 = nenhum). A HUD usa p/ disparo.
+    int Selected() const { return selected_; }
+
 private:
     std::vector<Contact> contacts_;
     std::vector<Contact> filtered_;
     char query_[128] = {0};
+    float scroll_ = 0;    // rolagem da lista (drag touch / roda mouse)
+    int selected_ = -1;   // índice em filtered_
+    bool dragging_ = false;
 };
 
 } // namespace chronos

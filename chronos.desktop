@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=CHRONOS
+GenericName=Routed Outgoing Network Hub
+Comment=Mensagens e automação de disparos multiplataforma (Telegram, WhatsApp) — 100% local
+Exec=chronos
+Icon=chronos
+Terminal=false
+Categories=Network;InstantMessaging;Utility;
+Keywords=chat;telegram;whatsapp;automation;scheduler;
+StartupWMClass=chronos

@@ -19,6 +19,8 @@ void ContactSelector::RefreshLocal() {
         {"wa:5511999990001", "Suporte", "+55 11 ...", "contact", "whatsapp", true},
         {"wa:group1", "Comunidade CHRONOS", "invite", "community", "whatsapp", false},
     };
+    selected_ = -1;
+    scroll_ = 0;
     SetQuery(query_);
 }
 
@@ -34,26 +36,73 @@ void ContactSelector::SetQuery(std::string q) {
                        [](unsigned char ch) { return (char)std::tolower(ch); });
         if (low.empty() || hlow.find(low) != std::string::npos) filtered_.push_back(c);
     }
+    selected_ = -1;
+    scroll_ = 0;
 }
 
 void ContactSelector::Draw(float x, float y, float w, float h) {
 #if CHRONOS_HAS_RAYLIB
     using namespace HudTheme;
+    const float S = UiScale();
     Hud::DrawPanel(x, y, w, h, "CONTATOS // SCAN");
     // Campo de busca estilo terminal.
-    DrawRectangle((int)(x + 12), (int)(y + 30), (int)(w - 24), 28, Bg());
-    DrawRectangleLines((int)(x + 12), (int)(y + 30), (int)(w - 24), 28, Neon());
-    DrawText(">_", (int)(x + 18), (int)(y + 36), kFontSizeMono, Neon());
+    const float searchH = 28 * S + 8;
+    DrawRectangle((int)(x + 12 * S), (int)(y + 30 * S), (int)(w - 24 * S), (int)searchH, Bg());
+    DrawRectangleLines((int)(x + 12 * S), (int)(y + 30 * S), (int)(w - 24 * S), (int)searchH,
+                       Neon());
+    DrawText(">_", (int)(x + 18 * S), (int)(y + 36 * S), ScaledFont(kFontSizeMono), Neon());
     // (Integração real de teclado: GuiTextBox / polling de chars — esqueleto.)
-    float ry = y + 66;
-    for (auto& c : filtered_) {
-        if (ry + 40 > y + h - 8) break;
-        DrawRectangle((int)(x + 12), (int)ry, (int)(w - 24), 36, Panel());
-        DrawText(c.displayName.c_str(), (int)(x + 20), (int)(ry + 4), kFontSizeMono, Text());
-        DrawText((c.kind + " :: " + c.driverName).c_str(), (int)(x + 20), (int)(ry + 20), 12,
-                 TextDim());
-        if (c.isOnline) DrawCircle((int)(x + w - 24), (int)(ry + 18), 5, Ok());
-        ry += 40;
+
+    const float rowH = TouchTarget() + 8 * S;  // linhas tocáveis no celular
+    const float listY = y + 30 * S + searchH + 8 * S;
+    const float listH = y + h - 8 * S - listY;
+    if (listH <= 0) return;
+
+    const Hud::Pointer p = Hud::PollPointer();
+    const bool inList =
+        (p.x >= x && p.x <= x + w && p.y >= listY && p.y <= listY + listH);
+
+    // Roda do mouse rola; no touch, arrastar com o dedo rola.
+    scroll_ -= Hud::MouseWheel() * 40 * S;
+    if (p.down && inList && (p.dy > 2 || p.dy < -2)) dragging_ = true;
+    if (!p.down) dragging_ = false;
+    if (dragging_ && inList) scroll_ -= p.dy;
+
+    const float totalH = (float)filtered_.size() * (rowH + 4 * S);
+    const float maxScroll = totalH > listH ? totalH - listH : 0;
+    if (scroll_ < 0) scroll_ = 0;
+    if (scroll_ > maxScroll) scroll_ = maxScroll;
+
+    BeginScissorMode((int)x, (int)listY, (int)w, (int)listH);
+    float ry = listY - scroll_;
+    for (size_t i = 0; i < filtered_.size(); ++i) {
+        const auto& c = filtered_[i];
+        if (ry + rowH >= listY && ry <= listY + listH) {
+            const bool sel = (int)i == selected_;
+            DrawRectangle((int)(x + 12 * S), (int)ry, (int)(w - 24 * S), (int)rowH,
+                          sel ? Neon() : Panel());
+            const Color fg = sel ? Bg() : Text();
+            DrawText(c.displayName.c_str(), (int)(x + 20 * S), (int)(ry + 6 * S),
+                     ScaledFont(kFontSizeMono), fg);
+            DrawText((c.kind + " :: " + c.driverName).c_str(), (int)(x + 20 * S),
+                     (int)(ry + 6 * S + ScaledFont(kFontSizeMono) + 4), ScaledFont(12),
+                     sel ? Bg() : TextDim());
+            if (c.isOnline)
+                DrawCircle((int)(x + w - 24 * S), (int)(ry + rowH / 2), 5 * S, Ok());
+            // Tap/click na linha seleciona (só se não estava arrastando).
+            if (p.clicked && !dragging_ && p.x >= x + 12 * S && p.x <= x + w - 12 * S &&
+                p.y >= ry && p.y <= ry + rowH) {
+                selected_ = (int)i;
+            }
+        }
+        ry += rowH + 4 * S;
+    }
+    EndScissorMode();
+    // Barra de rolagem fina.
+    if (maxScroll > 0) {
+        const float bh = listH * listH / totalH;
+        const float by = listY + (scroll_ / maxScroll) * (listH - bh);
+        DrawRectangle((int)(x + w - 8 * S), (int)by, (int)(4 * S), (int)bh, Neon());
     }
 #else
     (void)x; (void)y; (void)w; (void)h;
