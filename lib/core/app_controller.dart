@@ -2,6 +2,8 @@
 // Fica em /lib/core conforme a arquitetura modular.
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import 'database.dart';
@@ -59,6 +61,50 @@ class AppController extends ChangeNotifier {
         .where((e) => RegExp(r'^\d{2}:\d{2}$').hasMatch(e))
         .toList();
     await db.setSetting('quick_times', quickTimes.join(','));
+    notifyListeners();
+  }
+
+  /// Mensagens rápidas: {title, text} p/ colar no agendamento.
+  List<Map<String, String>> quickMessages = [];
+
+  Future<void> loadQuickMessages() async {
+    try {
+      final raw = await db.getSetting('quick_messages');
+      if (raw == null || raw.trim().isEmpty) {
+        quickMessages = [];
+        return;
+      }
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) {
+        quickMessages = [];
+        return;
+      }
+      quickMessages = decoded
+          .whereType<Map>()
+          .map((m) => {
+                'title': '${m['title'] ?? ''}',
+                'text': '${m['text'] ?? ''}',
+              })
+          .where((m) =>
+              m['title']!.isNotEmpty && m['text']!.isNotEmpty)
+          .toList();
+    } catch (_) {
+      quickMessages = [];
+    }
+  }
+
+  Future<void> saveQuickMessages(
+      List<Map<String, String>> items) async {
+    quickMessages = items
+        .map((m) => {
+              'title': (m['title'] ?? '').trim(),
+              'text': (m['text'] ?? '').trim(),
+            })
+        .where((m) =>
+            m['title']!.isNotEmpty && m['text']!.isNotEmpty)
+        .toList();
+    await db.setSetting(
+        'quick_messages', jsonEncode(quickMessages));
     notifyListeners();
   }
 
@@ -163,6 +209,7 @@ class AppController extends ChangeNotifier {
     }
     tags = await db.listTags();
     await loadQuickTimes();
+    await loadQuickMessages();
     await refreshHistory();
     notifyListeners();
   }

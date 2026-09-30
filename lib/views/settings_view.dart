@@ -36,9 +36,12 @@ class _SettingsViewState extends State<SettingsView> {
       builder: (context, _) {
         final times = widget.controller.quickTimes;
         return SingleChildScrollView(
-          child: HudPanel(
-            title: 'CONFIG // PREFERÊNCIAS',
-            accent: HudColors.neon,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              HudPanel(
+                title: 'HORÁRIOS // RECOMENDAÇÃO',
+                accent: HudColors.neon,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -158,8 +161,143 @@ class _SettingsViewState extends State<SettingsView> {
               ],
             ),
           ),
-        );
+          const SizedBox(height: 10),
+          _QuickMessagesPanel(controller: widget.controller),
+        ],
+      ),
+    );
       },
+    );
+  }
+}
+
+/// CRUD de mensagens rápidas (textos p/ colar no agendamento).
+class _QuickMessagesPanel extends StatefulWidget {
+  const _QuickMessagesPanel({required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<_QuickMessagesPanel> createState() => _QuickMessagesPanelState();
+}
+
+class _QuickMessagesPanelState extends State<_QuickMessagesPanel> {
+  final _title = TextEditingController();
+  final _text = TextEditingController();
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.controller.quickMessages;
+    return HudPanel(
+      title: 'MENSAGENS RÁPIDAS // CRUD [${items.length}]',
+      accent: HudColors.matrix,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+              'Textos prontos: no agendamento, toque no chip para '
+              'colar no campo de escrita.',
+              style:
+                  TextStyle(color: HudColors.dim, fontSize: 11)),
+          const SizedBox(height: 8),
+          if (items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text('// nenhuma ainda — crie a primeira abaixo',
+                  style: TextStyle(
+                      color: HudColors.dim, fontSize: 11)),
+            ),
+          for (var i = 0; i < items.length; i++)
+            Container(
+              margin: const EdgeInsets.only(bottom: 7),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.03),
+                border: Border.all(
+                    color: HudColors.edge.withValues(alpha: 0.7)),
+              ),
+              child: Row(children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(items[i]['title'] ?? '',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: HudColors.neon)),
+                      Text(items[i]['text'] ?? '',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 11)),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Apagar',
+                  icon: const Icon(Icons.delete_outline,
+                      size: 16, color: HudColors.danger),
+                  onPressed: () async {
+                    final next =
+                        List<Map<String, String>>.from(
+                            widget.controller
+                                .quickMessages)
+                          ..removeAt(i);
+                    await widget.controller
+                        .saveQuickMessages(next);
+                  },
+                ),
+              ]),
+            ),
+          TextField(
+              controller: _title,
+              style:
+                  const TextStyle(color: HudColors.text),
+              decoration: const InputDecoration(
+                  labelText: 'TÍTULO // ex.: follow-up')),
+          const SizedBox(height: 8),
+          TextField(
+              controller: _text,
+              maxLines: 3,
+              style:
+                  const TextStyle(color: HudColors.text),
+              decoration: const InputDecoration(
+                  labelText: 'TEXTO PRONTO')),
+          const SizedBox(height: 8),
+          NeonButton(
+            label: '+ SALVAR MENSAGEM',
+            accent: HudColors.matrix,
+            filled: false,
+            icon: Icons.add,
+            onPressed: () async {
+              if (_title.text.trim().isEmpty ||
+                  _text.text.trim().isEmpty) {
+                return;
+              }
+              final next =
+                  List<Map<String, String>>.from(
+                      widget.controller.quickMessages)
+                    ..add({
+                      'title': _title.text.trim(),
+                      'text': _text.text.trim()
+                    });
+              await widget.controller
+                  .saveQuickMessages(next);
+              _title.clear();
+              _text.clear();
+            },
+          ),
+        ],
+      ),
     );
   }
 }

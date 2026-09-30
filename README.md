@@ -157,6 +157,9 @@ id local e deixe o `Scheduler` disparar; nunca faça I/O na thread da UI.
 - **Mídias agendadas:** botão ANEXAR no agendamento (PDF, imagem, áudio,
   vídeo; legenda = texto, limite 16MB) — entrega via `sendMedia` no app
   e no daemon.
+- **Agendamento tático:** combobox de alvo com busca ao vivo (+ número
+  manual), mensagens rápidas p/ colar (CRUD na CONFIG), tag picker com
+  sugestões coloridas e chips de horário.
 - **Horários de recomendação:** aba CONFIG — edite os chips (padrão
   PowerZap 05:00→23:00) usados no agendamento.
 - **Fontes:** `JetBrainsMono` estilo terminal (Orbitron-compatível para

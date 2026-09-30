@@ -103,6 +103,8 @@ class _CalendarFullscreenViewState extends State<CalendarFullscreenView> {
       db: widget.controller.db,
       initialContact: widget.controller.selectedContact,
       quickTimes: widget.controller.quickTimes,
+      tags: widget.controller.tags,
+      quickMessages: widget.controller.quickMessages,
     );
     setState(() {});
   }
