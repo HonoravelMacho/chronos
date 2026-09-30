@@ -14,6 +14,7 @@ class ScheduledJob {
     required this.text,
     this.tag = '',
     required this.dueAtUnix,
+    this.attachmentPath = '',
   });
 
   final String id;
@@ -22,6 +23,9 @@ class ScheduledJob {
   final String text;
   final String tag;
   final int dueAtUnix;
+
+  /// Anexo local (pdf/imagem/audio/video) — vazio = só texto.
+  final String attachmentPath;
 }
 
 typedef DueCallback = Future<void> Function(ScheduledJob job);
@@ -66,7 +70,8 @@ class Scheduler extends ChangeNotifier {
     var j = job.id.isEmpty
         ? ScheduledJob(
             id: newId(), driverName: job.driverName, contactId: job.contactId,
-            text: job.text, tag: job.tag, dueAtUnix: job.dueAtUnix)
+            text: job.text, tag: job.tag, dueAtUnix: job.dueAtUnix,
+            attachmentPath: job.attachmentPath)
         : job;
     // Sem duplicatas: requeue do mesmo id substitui (offline -> pendente).
     _jobs.removeWhere((e) => e.id == j.id);

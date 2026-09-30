@@ -12,6 +12,8 @@ import '../ui/hud_theme.dart';
 import 'calendar_view.dart';
 import 'contacts_view.dart';
 import 'dashboard_view.dart';
+import 'settings_view.dart';
+import 'tags_view.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key, required this.controller});
@@ -62,9 +64,15 @@ class _HomeShellState extends State<HomeShell> {
             body = CalendarFullscreenView(
                 controller: widget.controller);
             break;
-          default:
+          case 2:
             body = ContactsTacticalView(
                 controller: widget.controller);
+            break;
+          case 3:
+            body = TagsView(controller: widget.controller);
+            break;
+          default:
+            body = SettingsView(controller: widget.controller);
         }
 
         return Scaffold(
@@ -108,11 +116,13 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Widget _bottomBar() {
-    const items = ['DASH', 'CALEND', 'ALVOS'];
+    const items = ['DASH', 'CALEND', 'ALVOS', 'TAGS', 'CONFIG'];
     const icons = [
       Icons.dashboard_outlined,
       Icons.grid_on,
-      Icons.contacts_outlined
+      Icons.contacts_outlined,
+      Icons.label_outlined,
+      Icons.settings_outlined
     ];
     return Container(
       decoration: BoxDecoration(
@@ -128,7 +138,7 @@ class _HomeShellState extends State<HomeShell> {
       ),
       child: Row(
         children: [
-          for (var i = 0; i < 3; i++)
+          for (var i = 0; i < 5; i++)
             Expanded(
               child: GestureDetector(
                 onTap: () => setState(() => _tab = i),
@@ -175,11 +185,13 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Widget _sideRail() {
-    const items = ['DASH', 'CALEND', 'ALVOS'];
+    const items = ['DASH', 'CALEND', 'ALVOS', 'TAGS', 'CONFIG'];
     const icons = [
       Icons.dashboard_outlined,
       Icons.grid_on,
-      Icons.contacts_outlined
+      Icons.contacts_outlined,
+      Icons.label_outlined,
+      Icons.settings_outlined
     ];
     return Container(
       width: 148,
@@ -199,7 +211,7 @@ class _HomeShellState extends State<HomeShell> {
                     fontSize: 9,
                     letterSpacing: 1.6)),
           ),
-          for (var i = 0; i < 3; i++)
+          for (var i = 0; i < 5; i++)
             GestureDetector(
               onTap: () => setState(() => _tab = i),
               child: Container(

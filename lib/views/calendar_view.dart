@@ -97,11 +97,12 @@ class _CalendarFullscreenViewState extends State<CalendarFullscreenView> {
   Future<void> _openNew(DateTime day) async {
     await showScheduleSheet(
       context: context,
-      contacts: widget.controller.contacts,
+      contacts: widget.controller.visibleContacts(),
       initialDay: day,
       scheduler: widget.controller.scheduler,
       db: widget.controller.db,
       initialContact: widget.controller.selectedContact,
+      quickTimes: widget.controller.quickTimes,
     );
     setState(() {});
   }

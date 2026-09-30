@@ -146,8 +146,7 @@ void main() {
       }
     });
 
-    test('payload de envio é flat {number,text} (não textMessage)', () async {
-      String? body;
+    test('payload de envio é flat {number,text} (não textMessage)', () async {      String? body;
       final client = MockClient((req) async {
         if (req.url.path.startsWith('/message/sendText/')) {
           body = req.body;
@@ -167,6 +166,46 @@ void main() {
       expect(payload['number'], '5511999990001');
       expect(payload['text'], 'oi');
       expect(payload.containsKey('textMessage'), isFalse);
+    });
+
+    test('detectMediaType classifica por extensão (tabela PowerZap)', () {
+      expect(WhatsAppDriver.detectMediaType('foto.PNG'), 'image');
+      expect(WhatsAppDriver.detectMediaType('clip.mp4'), 'video');
+      expect(WhatsAppDriver.detectMediaType('voz.ogg'), 'audio');
+      expect(WhatsAppDriver.detectMediaType('doc.pdf'), 'document');
+      expect(WhatsAppDriver.detectMediaType('semext'), 'document');
+    });
+
+    test('sendMedia envia shape PowerZap (mediatype/media/fileName)', () async {
+      final tmp = await Directory.systemTemp.createTemp('chronos_media');
+      final f = File('${tmp.path}/doc.pdf');
+      await f.writeAsBytes([37, 80, 68, 70]); // %PDF
+      String? body;
+      final client = MockClient((req) async {
+        if (req.url.path.startsWith('/message/sendMedia/')) {
+          body = req.body;
+          return http.Response(
+              jsonEncode({'key': {'id': 'MEDIA1'}}), 201);
+        }
+        return http.Response('{"message":"Not found"}', 404);
+      });
+      final d = WhatsAppDriver(
+          config: EvolutionConfig(baseUrl: 'http://127.0.0.1:9',
+              apiKey: 'k', instance: 'chronos'),
+          client: client);
+      expect(
+          await d.sendMedia(MessageRequest(
+              contactId: 'wa:5511999990001',
+              text: 'legenda',
+              attachmentPath: f.path)),
+          'MEDIA1');
+      final payload = jsonDecode(body!) as Map<String, dynamic>;
+      expect(payload['number'], '5511999990001');
+      expect(payload['mediatype'], 'document');
+      expect(payload['fileName'], 'doc.pdf');
+      expect(payload['caption'], 'legenda');
+      expect((payload['media'] as String).isNotEmpty, isTrue);
+      await tmp.delete(recursive: true);
     });
 
     test('contatos agregam chats + grupos + dono automático', () async {

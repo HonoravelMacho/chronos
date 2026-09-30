@@ -1,7 +1,8 @@
-// CHRONOS — sheet tático de agendamento (contato + mensagem + hora + tag).
-// Valida contato, texto, HH/MM e data futura; persiste no SQLite + Scheduler.
+// CHRONOS — sheet tático de agendamento (alvo + mídia + hora + tag).
+// Valida alvo, HH/MM e data futura; persiste no SQLite + Scheduler.
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../core/database.dart';
@@ -18,6 +19,7 @@ Future<void> showScheduleSheet({
   required Scheduler scheduler,
   required LocalDatabase db,
   Contact? initialContact,
+  List<String> quickTimes = const [],
 }) async {
   Contact? picked = initialContact ??
       (contacts.isNotEmpty ? contacts.first : null);
@@ -27,6 +29,8 @@ Future<void> showScheduleSheet({
   final mm = TextEditingController(text: '00');
   final tag = TextEditingController();
   String? error;
+  String mediaPath = '';
+  String mediaName = '';
 
   await showDialog(
     context: context,
@@ -142,6 +146,93 @@ Future<void> showScheduleSheet({
                             decoration: const InputDecoration(
                                 labelText: 'TAG'))),
                   ]),
+                  if (quickTimes.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    const Text('HORÁRIOS // TOQUE P/ USAR',
+                        style: TextStyle(
+                            color: HudColors.dim,
+                            fontSize: 10,
+                            letterSpacing: 1.6)),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final q in quickTimes)
+                          GestureDetector(
+                            onTap: () {
+                              final parts = q.split(':');
+                              setState(() {
+                                hh.text = parts[0];
+                                mm.text = parts[1];
+                              });
+                            },
+                            child: Container(
+                              padding:
+                                  const EdgeInsets.symmetric(
+                                      horizontal: 9,
+                                      vertical: 4),
+                              decoration: BoxDecoration(
+                                color: HudColors.matrix
+                                    .withValues(alpha: 0.12),
+                                border: Border.all(
+                                    color: HudColors.matrix
+                                        .withValues(alpha: 0.6)),
+                              ),
+                              child: Text(q,
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      color: HudColors.matrix,
+                                      fontWeight:
+                                          FontWeight.bold)),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  NeonButton(
+                    label: mediaPath.isEmpty
+                        ? 'ANEXAR ARQUIVO // PDF·IMG·ÁUDIO·VÍDEO'
+                        : 'ANEXO: $mediaName › TROCAR',
+                    accent: HudColors.neon,
+                    filled: false,
+                    icon: Icons.attach_file,
+                    onPressed: () async {
+                      final picked = await FilePicker.pickFiles();
+                      if (picked.isNotEmpty &&
+                          picked.first.path != null) {
+                        setState(() {
+                          mediaPath = picked.first.path!;
+                          mediaName = picked.first.name;
+                        });
+                      }
+                    },
+                  ),
+                  if (mediaPath.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(children: [
+                        Expanded(
+                          child: Text(mediaPath,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 10,
+                                  color: HudColors.dim)),
+                        ),
+                        IconButton(
+                          tooltip: 'Remover anexo',
+                          icon: const Icon(Icons.clear,
+                              size: 15,
+                              color: HudColors.danger),
+                          onPressed: () => setState(() {
+                            mediaPath = '';
+                            mediaName = '';
+                          }),
+                        ),
+                      ]),
+                    ),
                   if (error != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
@@ -195,9 +286,10 @@ Future<void> showScheduleSheet({
                                   error = 'Escolha um alvo ou digite o número');
                               return;
                             }
-                            if (msg.text.trim().isEmpty) {
+                            if (msg.text.trim().isEmpty &&
+                                mediaPath.isEmpty) {
                               setState(() => error =
-                                  'Digite a mensagem');
+                                  'Digite a mensagem ou anexe um arquivo');
                               return;
                             }
                             if (h < 0 ||
@@ -230,7 +322,8 @@ Future<void> showScheduleSheet({
                                     tag: tag.text.trim(),
                                     dueAtUnix: due
                                             .millisecondsSinceEpoch ~/
-                                        1000));
+                                        1000,
+                                    attachmentPath: mediaPath));
                             await db.saveSchedule(
                                 StoredSchedule(
                                     id: id,
@@ -241,7 +334,8 @@ Future<void> showScheduleSheet({
                                     tag: tag.text.trim(),
                                     dueAtUnix: due
                                             .millisecondsSinceEpoch ~/
-                                        1000));
+                                        1000,
+                                    mediaPath: mediaPath));
                             if (context.mounted) {
                               Navigator.pop(context);
                             }

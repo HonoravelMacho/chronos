@@ -68,6 +68,70 @@ Map<String, dynamic> loadConfig(Directory dir) {
 String toNumber(String contactId) =>
     contactId.startsWith('wa:') ? contactId.substring(3) : contactId;
 
+/// Tabela de mídia PowerZap (extensão -> mediatype/mime).
+String daemonMediaType(String path) {
+  final dot = path.toLowerCase().lastIndexOf('.');
+  final ext = dot >= 0 ? path.toLowerCase().substring(dot) : '';
+  const images = {
+    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'
+  };
+  const videos = {'.mp4', '.avi', '.mov', '.mkv'};
+  const audios = {'.mp3', '.ogg', '.wav', '.opus', '.m4a', '.aac'};
+  if (images.contains(ext)) return 'image';
+  if (videos.contains(ext)) return 'video';
+  if (audios.contains(ext)) return 'audio';
+  return 'document';
+}
+
+String daemonMime(String path) {
+  final dot = path.toLowerCase().lastIndexOf('.');
+  final ext = dot >= 0 ? path.toLowerCase().substring(dot + 1) : '';
+  switch (ext) {
+    case 'pdf':
+      return 'application/pdf';
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    case 'mp4':
+      return 'video/mp4';
+    case 'mp3':
+      return 'audio/mpeg';
+    case 'ogg':
+    case 'opus':
+      return 'audio/ogg';
+    case 'wav':
+      return 'audio/wav';
+    case 'txt':
+      return 'text/plain';
+    case 'zip':
+      return 'application/zip';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+/// Payload sendMedia (arquivo já validado pelo chamador).
+Map<String, dynamic> _mediaPayload(
+    String number, String caption, String mediaPath) {
+  final bytes = File(mediaPath).readAsBytesSync();
+  final fname = p.basename(mediaPath);
+  return {
+    'number': number,
+    'mediatype': daemonMediaType(mediaPath),
+    'media': base64Encode(bytes),
+    'mimetype': daemonMime(mediaPath),
+    'fileName': fname,
+    'filename': fname,
+    'caption': caption,
+  };
+}
+
 /// Espelho do isConnected do app: só entrega com socket aberto.
 Future<bool> _isOpen(String baseUrl, String apiKey, String instance,
     {Duration timeout = const Duration(seconds: 10)}) async {
@@ -159,7 +223,7 @@ Future<int> runOnce({Duration httpTimeout = const Duration(seconds: 15)}) async 
         "WHERE status = 'sending' AND due_at < ?",
         [now - 600]);
     final due = db.query(
-        'SELECT id, driver, contact, body, tag, due_at FROM schedules '
+        'SELECT id, driver, contact, body, tag, due_at, media_path FROM schedules '
         "WHERE done = 0 AND status = 'pending' AND due_at <= ? "
         'ORDER BY due_at',
         [now]);
@@ -198,19 +262,48 @@ Future<int> runOnce({Duration httpTimeout = const Duration(seconds: 15)}) async 
         final number = toNumber(row['contact'] as String);
         final body = row['body'] as String;
         final tag = (row['tag'] as String?) ?? '';
+        final mediaPath = (row['media_path'] as String?) ?? '';
+        Map<String, dynamic>? payload;
+        if (mediaPath.isNotEmpty) {
+          final f = File(mediaPath);
+          if (!f.existsSync()) {
+            finish(db, id, 'error', 'anexo não encontrado: $mediaPath');
+            log('[$id] anexo sumiu — marcada em vermelho');
+            continue;
+          }
+          if (f.lengthSync() > 16 * 1024 * 1024) {
+            finish(db, id, 'error', 'anexo maior que 16MB');
+            log('[$id] anexo > 16MB — marcada em vermelho');
+            continue;
+          }
+          payload = _mediaPayload(number, body, mediaPath);
+        }
         try {
-          final res = await client
-              .post(Uri.parse('$baseUrl/message/sendText/$instance'),
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'apikey': apiKey,
-                  },
-                  body: jsonEncode({
-                    'number': number,
-                    'textMessage': {'text': body},
-                  }))
-              .timeout(httpTimeout);
+          http.Response res;
+          if (payload != null) {
+            res = await client
+                .post(Uri.parse('$baseUrl/message/sendMedia/$instance'),
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Accept': 'application/json',
+                      'apikey': apiKey,
+                    },
+                    body: jsonEncode(payload))
+                .timeout(httpTimeout);
+          } else {
+            res = await client
+                .post(Uri.parse('$baseUrl/message/sendText/$instance'),
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Accept': 'application/json',
+                      'apikey': apiKey,
+                    },
+                    body: jsonEncode({
+                      'number': number,
+                      'text': body,
+                    }))
+                .timeout(httpTimeout);
+          }
           if (res.statusCode >= 400) {
             finish(db, id, 'error', 'evolution: HTTP ${res.statusCode}');
             log('[$id] HTTP ${res.statusCode} — marcada em vermelho');

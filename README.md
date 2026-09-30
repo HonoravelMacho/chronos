@@ -152,6 +152,13 @@ id local e deixe o `Scheduler` disparar; nunca faça I/O na thread da UI.
 - **Seletor tático:** lista unificada Contatos/Grupos/Canais/Comunidades
   (WhatsApp + Telegram) com filtro instantâneo `>_` estilo terminal e chips
   por kind/driver; grade 2 colunas no desktop, lista no mobile.
+- **Etiquetas com roda de cores:** aba TAGS — CRUD total, seletor HSV
+  desenhado em código + campo HEX manual + presets neon.
+- **Mídias agendadas:** botão ANEXAR no agendamento (PDF, imagem, áudio,
+  vídeo; legenda = texto, limite 16MB) — entrega via `sendMedia` no app
+  e no daemon.
+- **Horários de recomendação:** aba CONFIG — edite os chips (padrão
+  PowerZap 05:00→23:00) usados no agendamento.
 - **Fontes:** `JetBrainsMono` estilo terminal (Orbitron-compatível para
   títulos via letter-spacing/weight).
 

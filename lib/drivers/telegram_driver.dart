@@ -41,6 +41,11 @@ class TelegramDriver extends NetworkDriver {
   }
 
   @override
+  Future<String> sendMedia(MessageRequest req) {
+    throw DriverException('Telegram indisponível (TDLib pendente)');
+  }
+
+  @override
   Future<List<Contact>> fetchContacts() async => [
         Contact(id: 'tg:1', displayName: 'Equipe CHRONOS', handle: '@chronos',
             kind: 'group', driverName: 'telegram', isOnline: true),

@@ -26,6 +26,42 @@ class AppController extends ChangeNotifier {
   /// Próprio número descoberto na Evolution (ownerJid) — sem digitar.
   String ownNumberAuto = '';
 
+  /// Horários de recomendação (editáveis em CONFIG). Padrão PowerZap:
+  /// de hora em hora a partir das 05:00.
+  List<String> quickTimes = [];
+
+  static List<String> defaultQuickTimes() => [
+        for (var h = 5; h <= 23; h++)
+          '${h.toString().padLeft(2, '0')}:00'
+      ];
+
+  Future<void> loadQuickTimes() async {
+    try {
+      final raw = await db.getSetting('quick_times');
+      if (raw == null || raw.trim().isEmpty) {
+        quickTimes = defaultQuickTimes();
+        return;
+      }
+      final parts = raw
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => RegExp(r'^\d{2}:\d{2}$').hasMatch(e))
+          .toList();
+      quickTimes = parts.isEmpty ? defaultQuickTimes() : parts;
+    } catch (_) {
+      quickTimes = defaultQuickTimes();
+    }
+  }
+
+  Future<void> saveQuickTimes(List<String> times) async {
+    quickTimes = times
+        .map((e) => e.trim())
+        .where((e) => RegExp(r'^\d{2}:\d{2}$').hasMatch(e))
+        .toList();
+    await db.setSetting('quick_times', quickTimes.join(','));
+    notifyListeners();
+  }
+
   WhatsAppDriver? get whatsapp {
     for (final d in drivers) {
       if (d is WhatsAppDriver) return d;
@@ -78,12 +114,17 @@ class AppController extends ChangeNotifier {
             await db.saveSchedule(StoredSchedule(
                 id: job.id, driverName: job.driverName,
                 contactId: job.contactId, text: job.text, tag: job.tag,
-                dueAtUnix: job.dueAtUnix));
+                dueAtUnix: job.dueAtUnix,
+                mediaPath: job.attachmentPath));
             break;
           }
           try {
-            final id = await d.sendMessage(MessageRequest(
-                contactId: job.contactId, text: job.text, tag: job.tag));
+            final req = MessageRequest(
+                contactId: job.contactId, text: job.text, tag: job.tag,
+                attachmentPath: job.attachmentPath);
+            final id = job.attachmentPath.isNotEmpty
+                ? await d.sendMedia(req)
+                : await d.sendMessage(req);
             await db.finishSchedule(job.id, 'sent');
             await db.saveMessage(id: id, driver: job.driverName,
                 contact: job.contactId, body: job.text,
@@ -108,7 +149,8 @@ class AppController extends ChangeNotifier {
         // Crash no meio do envio: devolve à fila.
         await db.saveSchedule(StoredSchedule(
             id: s.id, driverName: s.driverName, contactId: s.contactId,
-            text: s.text, tag: s.tag, dueAtUnix: s.dueAtUnix));
+            text: s.text, tag: s.tag, dueAtUnix: s.dueAtUnix,
+            mediaPath: s.mediaPath));
       } else if (s.dueAtUnix <= now) {
         await db.finishSchedule(s.id, 'expired',
             error: 'venceu com o app/daemon fechados');
@@ -116,9 +158,11 @@ class AppController extends ChangeNotifier {
       }
       scheduler.schedule(ScheduledJob(
           id: s.id, driverName: s.driverName, contactId: s.contactId,
-          text: s.text, tag: s.tag, dueAtUnix: s.dueAtUnix));
+          text: s.text, tag: s.tag, dueAtUnix: s.dueAtUnix,
+          attachmentPath: s.mediaPath));
     }
     tags = await db.listTags();
+    await loadQuickTimes();
     await refreshHistory();
     notifyListeners();
   }
@@ -224,15 +268,18 @@ class AppController extends ChangeNotifier {
     required String text,
     required DateTime due,
     String tag = '',
+    String attachmentPath = '',
   }) async {
     final id = scheduler.schedule(ScheduledJob(
         id: '', driverName: contact.driverName, contactId: contact.id,
         text: text, tag: tag,
-        dueAtUnix: due.millisecondsSinceEpoch ~/ 1000));
+        dueAtUnix: due.millisecondsSinceEpoch ~/ 1000,
+        attachmentPath: attachmentPath));
     await db.saveSchedule(StoredSchedule(
         id: id, driverName: contact.driverName, contactId: contact.id,
         text: text, tag: tag,
-        dueAtUnix: due.millisecondsSinceEpoch ~/ 1000));
+        dueAtUnix: due.millisecondsSinceEpoch ~/ 1000,
+        mediaPath: attachmentPath));
     await refreshHistory();
     notifyListeners();
     return id;

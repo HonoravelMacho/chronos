@@ -64,6 +64,10 @@ abstract class NetworkDriver {
   Future<void> disconnect();
   Future<String> sendMessage(MessageRequest req);
   Future<String> scheduleMessage(MessageRequest req);
+
+  /// Envio com anexo (pdf/imagem/audio/video). Drivers sem suporte lançam
+  /// DriverException — o agendamento então registra erro visível.
+  Future<String> sendMedia(MessageRequest req);
   Future<List<Contact>> fetchContacts();
   DriverStatus get status;
 }

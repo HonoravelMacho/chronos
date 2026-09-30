@@ -252,6 +252,86 @@ class WhatsAppDriver extends NetworkDriver {
     return 'wa-sched-${DateTime.now().microsecondsSinceEpoch}';
   }
 
+  /// Tipo de mídia pela extensão (tabela PowerZap).
+  static String detectMediaType(String path) {
+    final dot = path.toLowerCase().lastIndexOf('.');
+    final ext = dot >= 0 ? path.toLowerCase().substring(dot) : '';
+    const images = {
+      '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'
+    };
+    const videos = {'.mp4', '.avi', '.mov', '.mkv'};
+    const audios = {'.mp3', '.ogg', '.wav', '.opus', '.m4a', '.aac'};
+    if (images.contains(ext)) return 'image';
+    if (videos.contains(ext)) return 'video';
+    if (audios.contains(ext)) return 'audio';
+    return 'document';
+  }
+
+  static String guessMime(String path) {
+    final dot = path.toLowerCase().lastIndexOf('.');
+    final ext = dot >= 0 ? path.toLowerCase().substring(dot + 1) : '';
+    switch (ext) {
+      case 'pdf':
+        return 'application/pdf';
+      case 'png':
+        return 'image/png';
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'gif':
+        return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      case 'mp4':
+        return 'video/mp4';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'ogg':
+      case 'opus':
+        return 'audio/ogg';
+      case 'wav':
+        return 'audio/wav';
+      case 'txt':
+        return 'text/plain';
+      case 'zip':
+        return 'application/zip';
+      default:
+        return 'application/octet-stream';
+    }
+  }
+
+  /// Envio com anexo (PowerZap send_media): POST /message/sendMedia com
+  /// number, mediatype, media (base64), mimetype, fileName/filename e
+  /// caption (a legenda é o texto agendado).
+  @override
+  Future<String> sendMedia(MessageRequest req) async {
+    if (req.contactId.isEmpty) throw DriverException('contactId vazio');
+    final file = File(req.attachmentPath);
+    if (req.attachmentPath.isEmpty || !await file.exists()) {
+      throw DriverException(
+          'anexo não encontrado: ${req.attachmentPath}');
+    }
+    final bytes = await file.readAsBytes();
+    if (bytes.length > 16 * 1024 * 1024) {
+      throw DriverException(
+          'anexo com ${bytes.length ~/ (1024 * 1024)}MB excede 16MB');
+    }
+    final fname = req.attachmentPath.split(Platform.pathSeparator).last;
+    final j = await _json('POST', '/message/sendMedia/${_config.instance}', {
+      'number': toEvolutionNumber(req.contactId),
+      'mediatype': detectMediaType(req.attachmentPath),
+      'media': base64Encode(bytes),
+      'mimetype': guessMime(req.attachmentPath),
+      'fileName': fname,
+      'filename': fname,
+      'caption': req.text,
+    });
+    final id = ((j['key'] as Map?)?['id'] as String?) ?? '';
+    return id.isEmpty
+        ? 'wa-noid-${DateTime.now().microsecondsSinceEpoch}'
+        : id;
+  }
+
   /// Parse tolerante de uma linha de contato (PowerZap: várias chaves
   /// de nome, fallback phoneNumber, filtro broadcast/newsletter, LID).
   Contact? _parseRow(Map item) {

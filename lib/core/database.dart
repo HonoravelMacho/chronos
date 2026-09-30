@@ -18,6 +18,7 @@ class StoredSchedule {
     this.done = false,
     this.status = 'pending',
     this.error = '',
+    this.mediaPath = '',
   });
 
   final String id;
@@ -31,6 +32,9 @@ class StoredSchedule {
   /// pending | sending | sent | error | expired
   final String status;
   final String error;
+
+  /// Anexo local (pdf/imagem/audio/video) — vazio = só texto.
+  final String mediaPath;
 }
 
 class LocalDatabase {
@@ -48,7 +52,7 @@ class LocalDatabase {
     _db = await databaseFactoryFfi.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onCreate: (db, _) async {
           await db.execute(
               'CREATE TABLE messages(id TEXT PRIMARY KEY,driver TEXT,contact TEXT,'
@@ -56,10 +60,13 @@ class LocalDatabase {
           await db.execute(
               'CREATE TABLE schedules(id TEXT PRIMARY KEY,driver TEXT,contact TEXT,'
               'body TEXT,due_at INTEGER,tag TEXT,done INTEGER DEFAULT 0,'
-              'status TEXT DEFAULT \'pending\',error TEXT DEFAULT \'\')');
+              'status TEXT DEFAULT \'pending\',error TEXT DEFAULT \'\','
+              'media_path TEXT DEFAULT \'\')');
           await db.execute('CREATE TABLE tags(name TEXT PRIMARY KEY,color TEXT)');
           await db.execute(
               'CREATE TABLE sessions(driver TEXT PRIMARY KEY,blob TEXT)');
+          await db.execute(
+              'CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT)');
         },
         onUpgrade: (db, oldV, _) async {
           // v1 -> v2: rastreio de estado (verde/amarelo/vermelho).
@@ -68,6 +75,13 @@ class LocalDatabase {
                 'ALTER TABLE schedules ADD COLUMN status TEXT DEFAULT \'pending\'');
             await db.execute(
                 'ALTER TABLE schedules ADD COLUMN error TEXT DEFAULT \'\'');
+          }
+          // v2 -> v3: anexo de mídia + tabela de configurações.
+          if (oldV < 3) {
+            await db.execute(
+                'ALTER TABLE schedules ADD COLUMN media_path TEXT DEFAULT \'\'');
+            await db.execute(
+                'CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT)');
           }
         },
       ),
@@ -103,7 +117,8 @@ class LocalDatabase {
       'schedules',
       {'id': s.id, 'driver': s.driverName, 'contact': s.contactId,
        'body': s.text, 'due_at': s.dueAtUnix, 'tag': s.tag,
-       'done': s.done ? 1 : 0, 'status': s.status, 'error': s.error},
+       'done': s.done ? 1 : 0, 'status': s.status, 'error': s.error,
+       'media_path': s.mediaPath},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -164,6 +179,7 @@ class LocalDatabase {
               done: (r['done'] as int) != 0,
               status: (r['status'] as String?) ?? 'pending',
               error: (r['error'] as String?) ?? '',
+              mediaPath: (r['media_path'] as String?) ?? '',
             ))
         .toList();
   }
@@ -181,6 +197,18 @@ class LocalDatabase {
   Future<Map<String, String>> listTags() async {
     final rows = await _db!.query('tags', orderBy: 'name');
     return {for (final r in rows) r['name'] as String: r['color'] as String};
+  }
+
+  Future<String?> getSetting(String key) async {
+    final rows = await _db!.query('settings',
+        where: 'key = ?', whereArgs: [key], limit: 1);
+    if (rows.isEmpty) return null;
+    return rows.first['value'] as String?;
+  }
+
+  Future<void> setSetting(String key, String value) async {
+    await _db!.insert('settings', {'key': key, 'value': value},
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> close() async {
