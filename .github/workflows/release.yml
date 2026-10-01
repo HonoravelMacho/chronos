@@ -101,11 +101,17 @@ jobs:
           tar -czf "dist/chronos-${TAG}-linux-x86_64.tar.gz" -C "$STAGE" opt
           # .desktop + ícone no stage (deb/rpm/tar)
           mkdir -p "$STAGE/usr/share/applications" \
-                   "$STAGE/usr/share/icons/hicolor/scalable/apps"
+                   "$STAGE/usr/share/icons/hicolor/scalable/apps" \
+                   "$STAGE/usr/share/icons/hicolor/128x128/apps" \
+                   "$STAGE/usr/share/icons/hicolor/512x512/apps"
           sed 's|^Exec=.*|Exec=/opt/chronos/chronos_hub|' chronos.desktop \
             > "$STAGE/usr/share/applications/chronos.desktop"
           cp assets/icons/chronos.svg \
              "$STAGE/usr/share/icons/hicolor/scalable/apps/chronos.svg"
+          cp assets/icons/chronos-128.png \
+             "$STAGE/usr/share/icons/hicolor/128x128/apps/chronos.png"
+          cp assets/icons/chronos-512.png \
+             "$STAGE/usr/share/icons/hicolor/512x512/apps/chronos.png"
           # .deb via dpkg-deb
           mkdir -p "$STAGE/DEBIAN"
           SIZE=$(du -sk "$STAGE" | cut -f1)
@@ -147,6 +153,8 @@ jobs:
           /opt/chronos
           /usr/share/applications/chronos.desktop
           /usr/share/icons/hicolor/scalable/apps/chronos.svg
+          /usr/share/icons/hicolor/128x128/apps/chronos.png
+          /usr/share/icons/hicolor/512x512/apps/chronos.png
           EOF
           rpmbuild -bb "$RPMBUILD/SPECS/chronos.spec"
           cp "$RPMBUILD/RPMS/x86_64/"*.rpm dist/

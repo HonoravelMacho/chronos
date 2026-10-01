@@ -87,6 +87,14 @@ class Scheduler extends ChangeNotifier {
     return _jobs.length != n;
   }
 
+  /// Substitui a fila (usado após sync da nuvem privada).
+  void replaceAll(List<ScheduledJob> jobs) {
+    _jobs
+      ..clear()
+      ..addAll(jobs);
+    notifyListeners();
+  }
+
   void _tick() {
     final now = nowUnix();
     final due = _jobs.where((j) => j.dueAtUnix <= now).toList();

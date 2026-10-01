@@ -2,7 +2,9 @@
 // Fica em /lib/core conforme a arquitetura modular.
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
@@ -10,6 +12,8 @@ import 'database.dart';
 import 'driver_registry.dart';
 import 'evolution_config.dart';
 import 'scheduler.dart';
+import 'sync_client.dart';
+import 'sync_server.dart';
 import '../drivers/telegram_driver.dart';
 import '../drivers/whatsapp_driver.dart';
 
@@ -210,6 +214,8 @@ class AppController extends ChangeNotifier {
     tags = await db.listTags();
     await loadQuickTimes();
     await loadQuickMessages();
+    await loadCloudConfig();
+    await _applyCloudMode();
     await refreshHistory();
     notifyListeners();
   }
@@ -329,6 +335,7 @@ class AppController extends ChangeNotifier {
         mediaPath: attachmentPath));
     await refreshHistory();
     notifyListeners();
+    unawaited(_autoSyncAfterLocalChange());
     return id;
   }
 
@@ -337,6 +344,7 @@ class AppController extends ChangeNotifier {
     await db.deleteSchedule(id);
     await refreshHistory();
     notifyListeners();
+    unawaited(_autoSyncAfterLocalChange());
   }
 
   Future<void> refreshTags() async {
@@ -344,8 +352,185 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Nuvem privada (PC = host, celular = cliente, sync two-way) ──────
+  // PC ativa MODO HOST (HttpServer na LAN); celular aponta HOST = IP do PC.
+  // Quem agenda em qualquer lado vê em todos após SINCRONIZAR.
+
+  String cloudMode = 'off'; // off | host | client
+  String cloudHost = '';
+  int cloudPort = 7878;
+  String cloudToken = '';
+  String cloudLastSync = '';
+  String? cloudError;
+  bool cloudBusy = false;
+  bool cloudServing = false;
+  List<String> lanIps = [];
+
+  ChronosSyncServer? _syncServer;
+  final ChronosSyncClient _syncClient = ChronosSyncClient();
+  Timer? _cloudTimer;
+
+  Future<void> loadCloudConfig() async {
+    try {
+      cloudMode = await db.getSetting('cloud_mode') ?? 'off';
+      cloudHost = await db.getSetting('cloud_host') ?? '';
+      cloudPort =
+          int.tryParse(await db.getSetting('cloud_port') ?? '') ?? 7878;
+      cloudToken = await db.getSetting('cloud_token') ?? '';
+      cloudLastSync = await db.getSetting('cloud_last_sync') ?? '';
+      if (cloudMode != 'host' && cloudMode != 'client') cloudMode = 'off';
+      if (cloudPort < 1 || cloudPort > 65535) cloudPort = 7878;
+    } catch (_) {
+      cloudMode = 'off';
+    }
+    await _loadLanIps();
+    notifyListeners();
+  }
+
+  Future<void> _loadLanIps() async {
+    try {
+      final ifs = await NetworkInterface.list(
+          includeLoopback: false, type: InternetAddressType.IPv4);
+      final ips = <String>[];
+      for (final i in ifs) {
+        for (final a in i.addresses) {
+          if (!a.isLoopback) ips.add(a.address);
+        }
+      }
+      lanIps = ips;
+    } catch (_) {
+      lanIps = [];
+    }
+  }
+
+  Future<void> saveCloudConfig(
+      {String? mode, String? host, int? port, String? token}) async {
+    if (mode != null) cloudMode = mode;
+    if (host != null) cloudHost = host.trim();
+    if (port != null) cloudPort = port;
+    if (token != null) cloudToken = token.trim();
+    await db.setSetting('cloud_mode', cloudMode);
+    await db.setSetting('cloud_host', cloudHost);
+    await db.setSetting('cloud_port', '$cloudPort');
+    await db.setSetting('cloud_token', cloudToken);
+    await _applyCloudMode();
+    notifyListeners();
+  }
+
+  Future<void> _applyCloudMode() async {
+    _cloudTimer?.cancel();
+    _cloudTimer = null;
+    if (cloudMode == 'host') {
+      await startCloudHost();
+    } else {
+      await stopCloudHost();
+      if (cloudMode == 'client' && cloudHost.isNotEmpty) {
+        _cloudTimer =
+            Timer.periodic(const Duration(seconds: 60), (_) async {
+          if (!cloudBusy) {
+            try {
+              await syncNow(silent: true);
+            } catch (_) {
+              // auto-sync nunca quebra a UI
+            }
+          }
+        });
+      }
+    }
+  }
+
+  Future<void> startCloudHost() async {
+    _syncServer ??= ChronosSyncServer(db);
+    try {
+      final p = await _syncServer!.start(port: cloudPort);
+      cloudPort = p;
+      await db.setSetting('cloud_port', '$p');
+      cloudServing = true;
+      cloudError = null;
+    } catch (e) {
+      cloudServing = false;
+      cloudError = 'NUVEM: não abri a porta $cloudPort ($e)';
+    }
+    await _loadLanIps();
+    notifyListeners();
+  }
+
+  Future<void> stopCloudHost() async {
+    try {
+      await _syncServer?.stop();
+    } catch (_) {}
+    cloudServing = false;
+    notifyListeners();
+  }
+
+  /// Reconstrói a fila in-memory a partir do banco (pós-sync).
+  Future<void> rebuildSchedulerFromDb() async {
+    final now = Scheduler.nowUnix();
+    final stored = await db.listSchedules();
+    final jobs = <ScheduledJob>[];
+    for (final s in stored) {
+      if (s.done) continue;
+      if (s.status == 'sending') continue; // em entrega: não duplica
+      if (s.dueAtUnix <= now) continue; // vencido: vira expired no refresh
+      jobs.add(ScheduledJob(
+          id: s.id, driverName: s.driverName, contactId: s.contactId,
+          text: s.text, tag: s.tag, dueAtUnix: s.dueAtUnix,
+          attachmentPath: s.mediaPath));
+    }
+    scheduler.replaceAll(jobs);
+  }
+
+  /// Two-way com o host. Em sucesso, ambos os lados veem tudo.
+  Future<int> syncNow({bool silent = false}) async {
+    if (cloudMode != 'client' || cloudHost.isEmpty) {
+      if (!silent) {
+        cloudError = 'Informe o IP do PC (HOST) primeiro';
+        notifyListeners();
+      }
+      return 0;
+    }
+    cloudBusy = true;
+    if (!silent) {
+      cloudError = null;
+      notifyListeners();
+    }
+    try {
+      final n = await _syncClient.sync(db,
+          host: cloudHost, port: cloudPort, token: cloudToken);
+      await rebuildSchedulerFromDb();
+      await refreshHistory();
+      await refreshTags();
+      cloudLastSync = DateTime.now().toIso8601String().substring(0, 19);
+      await db.setSetting('cloud_last_sync', cloudLastSync);
+      cloudError = null;
+      notifyListeners();
+      return n;
+    } catch (e) {
+      final msg = '$e'.replaceFirst('Exception: ', '');
+      cloudError = msg;
+      notifyListeners();
+      if (!silent) rethrow;
+      return 0;
+    } finally {
+      cloudBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<int> probeCloudHost() => _syncClient.probe(
+      cloudHost, cloudPort, cloudToken);
+
+  /// Após mudança local (agendou/apagou), espelha no host sem travar a UI.
+  Future<void> _autoSyncAfterLocalChange() async {
+    if (cloudMode != 'client' || cloudHost.isEmpty || cloudBusy) return;
+    try {
+      await syncNow(silent: true);
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
+    _cloudTimer?.cancel();
     scheduler.dispose();
     super.dispose();
   }

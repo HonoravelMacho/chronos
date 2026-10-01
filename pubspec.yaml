@@ -1,7 +1,7 @@
 name: chronos_hub
 description: "CHRONOS — Cross-platform Hub for Routed Outgoing Network Open Source (Flutter Sci-Fi HUD)."
 publish_to: 'none'
-version: 0.9.0+17
+version: 0.10.0+18
 
 environment:
   sdk: ^3.12.2
@@ -29,6 +29,8 @@ flutter:
   assets:
     - assets/fonts/JetBrainsMono-Regular.ttf
     - assets/icons/chronos.svg
+    - assets/icons/chronos-128.png
+    - assets/icons/chronos-512.png
   fonts:
     - family: JetBrainsMono
       fonts:

@@ -155,11 +155,19 @@ id local e deixe o `Scheduler` disparar; nunca faça I/O na thread da UI.
 - **Etiquetas com roda de cores:** aba TAGS — CRUD total, seletor HSV
   desenhado em código + campo HEX manual + presets neon.
 - **Mídias agendadas:** botão ANEXAR no agendamento (PDF, imagem, áudio,
-  vídeo; legenda = texto, limite 16MB) — entrega via `sendMedia` no app
+  vídeo; legenda = texto, **sem limite de tamanho** — PDF gigante apenas
+  leva o tempo necessário, timeout de 15min) — entrega via `sendMedia` no app
   e no daemon.
 - **Agendamento tático:** combobox de alvo com busca ao vivo (+ número
   manual), mensagens rápidas p/ colar (CRUD na CONFIG), tag picker com
   sugestões coloridas e chips de horário.
+- **Nuvem privada (sem nuvem pública):** aba DASH → **NUVEM PRIVADA** —
+  no PC escolha `PC = HOST` + **ATIVAR NUVEM**; no celular escolha
+  `CEL = CLIENTE`, HOST = IP do PC + mesma porta/token + **SINCRONIZAR**.
+  Two-way com `updated_at` (last-write-wins) + lápides de exclusão: quem
+  agenda em qualquer lado aparece em todos (auto-sync a cada 60s + após
+  agendar/apagar). Servidor: `GET /chronos/v1/status|pull`,
+  `POST /chronos/v1/push` na porta 7878 (LAN).
 - **Horários de recomendação:** aba CONFIG — edite os chips (padrão
   PowerZap 05:00→23:00) usados no agendamento.
 - **Fontes:** `JetBrainsMono` estilo terminal (Orbitron-compatível para

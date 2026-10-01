@@ -173,7 +173,9 @@ DynamicLibrary loadSqlite() {
 }
 
 /// Uma varredura: retorna nº de entregues. Nunca lança (só loga).
-Future<int> runOnce({Duration httpTimeout = const Duration(seconds: 15)}) async {
+/// [httpTimeout] longo (15min) p/ PDFs gigantes sem limite de tamanho.
+Future<int> runOnce(
+    {Duration httpTimeout = const Duration(minutes: 15)}) async {
   final dir = dataDir();
   final cfg = loadConfig(dir);
   final baseUrl = (cfg['base_url'] as String?) ?? '';
@@ -271,11 +273,8 @@ Future<int> runOnce({Duration httpTimeout = const Duration(seconds: 15)}) async 
             log('[$id] anexo sumiu — marcada em vermelho');
             continue;
           }
-          if (f.lengthSync() > 16 * 1024 * 1024) {
-            finish(db, id, 'error', 'anexo maior que 16MB');
-            log('[$id] anexo > 16MB — marcada em vermelho');
-            continue;
-          }
+          // SEM LIMITE de tamanho: entrega mesmo que demore; erro só se
+          // o arquivo sumiu ou a rede/Evolution falhar de verdade.
           payload = _mediaPayload(number, body, mediaPath);
         }
         try {

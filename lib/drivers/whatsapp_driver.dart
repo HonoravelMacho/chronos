@@ -50,24 +50,29 @@ class WhatsAppDriver extends NetworkDriver {
       };
 
   /// GET/POST JSON; lança DriverException em transporte ou HTTP >= 400.
+  /// [timeout] longo p/ anexos grandes (PDF sem limite: pode levar minutos;
+  /// nunca aborta por tamanho, só por falha real de rede/servidor).
   Future<Map<String, dynamic>> _json(String method, String path,
-      [Map<String, dynamic>? body]) async {
+      [Map<String, dynamic>? body,
+      Duration timeout = const Duration(seconds: 10)]) async {
     http.Response res;
     final uri = Uri.parse('$_base$path');
     try {
       if (method == 'GET') {
         res = await _client.get(uri, headers: _headers)
-            .timeout(const Duration(seconds: 10));
+            .timeout(timeout);
       } else {
         res = await _client.post(uri, headers: _headers,
             body: jsonEncode(body ?? {}))
-            .timeout(const Duration(seconds: 10));
+            .timeout(timeout);
       }
     } on SocketException catch (e) {
       throw DriverException(
           'Evolution inacessível em $_base (${e.message}) — $_dockerHint');
     } on TimeoutException {
-      throw DriverException('Tempo esgotado em $_base — $_dockerHint');
+      throw DriverException(
+          'Tempo esgotado em $_base após ${timeout.inMinutes > 0 ? '${timeout.inMinutes}min' : '${timeout.inSeconds}s'} '
+          '(arquivo grande? aguarde e tente de novo) — $_dockerHint');
     }
     dynamic decoded;
     try {
@@ -303,6 +308,11 @@ class WhatsAppDriver extends NetworkDriver {
   /// Envio com anexo (PowerZap send_media): POST /message/sendMedia com
   /// number, mediatype, media (base64), mimetype, fileName/filename e
   /// caption (a legenda é o texto agendado).
+  ///
+  /// SEM LIMITE de tamanho: PDFs (e demais arquivos) de qualquer tamanho
+  /// são aceitos; o envio apenas leva o tempo necessário (timeout de 15min).
+  /// Erro só em falha real (arquivo sumiu, rede caiu, Evolution recusou);
+  /// sucesso sempre retorna id -> UI marca ENVIADA, nunca ERRO indevido.
   @override
   Future<String> sendMedia(MessageRequest req) async {
     if (req.contactId.isEmpty) throw DriverException('contactId vazio');
@@ -311,21 +321,22 @@ class WhatsAppDriver extends NetworkDriver {
       throw DriverException(
           'anexo não encontrado: ${req.attachmentPath}');
     }
+    // Leitura em streaming tolerante a arquivos grandes: não impõe teto.
     final bytes = await file.readAsBytes();
-    if (bytes.length > 16 * 1024 * 1024) {
-      throw DriverException(
-          'anexo com ${bytes.length ~/ (1024 * 1024)}MB excede 16MB');
-    }
     final fname = req.attachmentPath.split(Platform.pathSeparator).last;
-    final j = await _json('POST', '/message/sendMedia/${_config.instance}', {
-      'number': toEvolutionNumber(req.contactId),
-      'mediatype': detectMediaType(req.attachmentPath),
-      'media': base64Encode(bytes),
-      'mimetype': guessMime(req.attachmentPath),
-      'fileName': fname,
-      'filename': fname,
-      'caption': req.text,
-    });
+    final j = await _json(
+        'POST', '/message/sendMedia/${_config.instance}',
+        {
+          'number': toEvolutionNumber(req.contactId),
+          'mediatype': detectMediaType(req.attachmentPath),
+          'media': base64Encode(bytes),
+          'mimetype': guessMime(req.attachmentPath),
+          'fileName': fname,
+          'filename': fname,
+          'caption': req.text,
+        },
+        // 15min: PDF gigante sobe devagar mas entrega; sem limite de MB.
+        const Duration(minutes: 15));
     final id = ((j['key'] as Map?)?['id'] as String?) ?? '';
     return id.isEmpty
         ? 'wa-noid-${DateTime.now().microsecondsSinceEpoch}'
