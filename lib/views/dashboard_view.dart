@@ -12,6 +12,7 @@ import '../ui/hud_theme.dart';
 import '../ui/neon_button.dart';
 import 'sync_panel.dart';
 import 'cloud_sync_view.dart';
+import 'pairing_view.dart';
 
 class DashboardView extends StatelessWidget {
   const DashboardView({super.key, required this.controller});
@@ -47,6 +48,8 @@ class DashboardView extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 10),
+              PairingCard(controller: controller),
               const SizedBox(height: 10),
               SyncPanel(controller: controller),
               const SizedBox(height: 10),

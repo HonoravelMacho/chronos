@@ -2,6 +2,9 @@
     <!-- Rede: Evolution API local (HTTP na LAN) + TDLib futuro. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Scanner do QR de pareamento (nuvem + WhatsApp em 1 código). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <application
         android:label="CHRONOS"
         android:name="${applicationName}"

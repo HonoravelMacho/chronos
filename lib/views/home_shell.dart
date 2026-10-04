@@ -24,13 +24,30 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _tab = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.controller.refreshContacts();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Android voltou do bolso/Doze: tenta reconectar na hora em vez de
+    // esperar o timer (principal causa do "desconectou e não volta").
+    if (state == AppLifecycleState.resumed) {
+      widget.controller.foregroundTick();
+      widget.controller.refreshContacts();
+    }
   }
 
   @override

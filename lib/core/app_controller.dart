@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'database.dart';
+import 'connect_qr.dart';
 import 'driver_registry.dart';
 import 'evolution_config.dart';
 import 'scheduler.dart';
@@ -366,6 +367,11 @@ class AppController extends ChangeNotifier {
   bool cloudServing = false;
   List<String> lanIps = [];
 
+  /// IPs alternativos do PC (do QR): se o DHCP trocar o IP principal,
+  /// o cliente tenta estes sem pedir nada ao usuário.
+  List<String> cloudAlts = [];
+  int cloudFails = 0;
+
   ChronosSyncServer? _syncServer;
   final ChronosSyncClient _syncClient = ChronosSyncClient();
   Timer? _cloudTimer;
@@ -378,6 +384,12 @@ class AppController extends ChangeNotifier {
           int.tryParse(await db.getSetting('cloud_port') ?? '') ?? 7878;
       cloudToken = await db.getSetting('cloud_token') ?? '';
       cloudLastSync = await db.getSetting('cloud_last_sync') ?? '';
+      final altsRaw = await db.getSetting('cloud_host_alts') ?? '';
+      cloudAlts = altsRaw
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty && e != cloudHost)
+          .toList();
       if (cloudMode != 'host' && cloudMode != 'client') cloudMode = 'off';
       if (cloudPort < 1 || cloudPort > 65535) cloudPort = 7878;
     } catch (_) {
@@ -404,15 +416,26 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> saveCloudConfig(
-      {String? mode, String? host, int? port, String? token}) async {
+      {String? mode,
+      String? host,
+      int? port,
+      String? token,
+      List<String>? alts}) async {
     if (mode != null) cloudMode = mode;
     if (host != null) cloudHost = host.trim();
     if (port != null) cloudPort = port;
     if (token != null) cloudToken = token.trim();
+    if (alts != null) {
+      cloudAlts = alts
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty && e != cloudHost)
+          .toList();
+    }
     await db.setSetting('cloud_mode', cloudMode);
     await db.setSetting('cloud_host', cloudHost);
     await db.setSetting('cloud_port', '$cloudPort');
     await db.setSetting('cloud_token', cloudToken);
+    await db.setSetting('cloud_host_alts', cloudAlts.join(','));
     await _applyCloudMode();
     notifyListeners();
   }
@@ -425,8 +448,11 @@ class AppController extends ChangeNotifier {
     } else {
       await stopCloudHost();
       if (cloudMode == 'client' && cloudHost.isNotEmpty) {
+        // Auto-sync resiliente: a cada 15s tenta silenciosamente.
+        // Falha nunca quebra a UI; após N falhas, tenta os IPs
+        // alternativos do QR (DHCP trocou o IP do PC).
         _cloudTimer =
-            Timer.periodic(const Duration(seconds: 60), (_) async {
+            Timer.periodic(const Duration(seconds: 15), (_) async {
           if (!cloudBusy) {
             try {
               await syncNow(silent: true);
@@ -437,6 +463,101 @@ class AppController extends ChangeNotifier {
         });
       }
     }
+  }
+
+  /// Chamado quando o app volta ao primeiro plano (Android/PC):
+  /// redescobre a rede e tenta sincronizar na hora, sem esperar o timer.
+  Future<void> foregroundTick() async {
+    await _loadLanIps();
+    if (cloudMode == 'client' && cloudHost.isNotEmpty && !cloudBusy) {
+      try {
+        await syncNow(silent: true);
+      } catch (_) {}
+    }
+    // Revalida o WhatsApp em background (best-effort).
+    final wa = whatsapp;
+    if (wa != null && !wa.status.connected) {
+      try {
+        await wa.connect();
+      } catch (_) {}
+    }
+    notifyListeners();
+  }
+
+  /// Monta o payload do QR de pareamento (PC/host): nuvem + Evolution
+  /// com IP LAN (nunca localhost — o Android não alcança localhost do PC).
+  String buildPairingQr() {
+    final best = pickBestLanIp(
+        lanIps.isEmpty ? [cloudHost] : lanIps);
+    final host = best.isNotEmpty ? best : cloudHost;
+    final alts = <String>[
+      for (final ip in lanIps)
+        if (ip != host) ip,
+      for (final ip in cloudAlts)
+        if (ip != host && !lanIps.contains(ip)) ip,
+    ];
+    final wa = whatsapp;
+    final evo = wa?.config ?? EvolutionConfig();
+    // Troca localhost/127 pelo IP LAN para o celular alcançar.
+    var evoHost = evo.host.trim();
+    if (evoHost.isEmpty ||
+        evoHost == 'localhost' ||
+        evoHost.startsWith('127.')) {
+      evoHost = host;
+    }
+    final p = ChronosPairing(
+      cloudHost: host,
+      cloudPort: cloudPort,
+      cloudToken: cloudToken,
+      cloudAlts: alts.take(6).toList(),
+      evoScheme: evo.scheme,
+      evoHost: evoHost,
+      evoPort: evo.port,
+      evoKey: evo.apiKey,
+      evoInstance:
+          evo.instance.isEmpty ? 'chronos' : evo.instance,
+    );
+    return p.encode();
+  }
+
+  /// Aplica o QR escaneado no Android: configura nuvem + WhatsApp de
+  /// uma vez, conecta e sincroniza. Retorna nº de agendamentos.
+  Future<int> applyPairingQr(String raw) async {
+    final p = ChronosPairing.tryDecode(raw);
+    if (p == null) {
+      throw Exception(
+          'QR inválido — escaneie o QR de pareamento do CHRONOS no PC');
+    }
+    // 1. Nuvem privada -> modo cliente apontando p/ o PC.
+    await saveCloudConfig(
+      mode: 'client',
+      host: p.cloudHost,
+      port: p.cloudPort,
+      token: p.cloudToken,
+      alts: p.cloudAlts,
+    );
+    // 2. WhatsApp/Evolution -> MESMA sessão do PC (sem 2º QR de WhatsApp).
+    final wa = whatsapp;
+    if (wa != null && p.evoKey.isNotEmpty) {
+      final cfg = EvolutionConfig(
+        baseUrl: EvolutionConfig.buildBaseUrl(
+            scheme: p.evoScheme, host: p.evoHost, port: p.evoPort),
+        apiKey: p.evoKey,
+        instance: p.evoInstance,
+        ownerNumber: wa.config.ownerNumber,
+      );
+      await saveEvolutionConfig(cfg);
+      wa.setConfig(cfg);
+      try {
+        await wa.connect();
+      } catch (_) {}
+      try {
+        await refreshContacts();
+      } catch (_) {}
+    }
+    // 3. Sync imediato do calendário.
+    cloudFails = 0;
+    return syncNow();
   }
 
   Future<void> startCloudHost() async {
@@ -480,11 +601,14 @@ class AppController extends ChangeNotifier {
     scheduler.replaceAll(jobs);
   }
 
-  /// Two-way com o host. Em sucesso, ambos os lados veem tudo.
+  /// Two-way com o host, com failover automático: tenta o IP principal
+  /// e depois os alternativos do QR. Se um alternativo responder, ele é
+  /// promovido a principal (DHCP trocou o IP — o usuário não percebe).
+  /// Em sucesso, ambos os lados veem tudo.
   Future<int> syncNow({bool silent = false}) async {
     if (cloudMode != 'client' || cloudHost.isEmpty) {
       if (!silent) {
-        cloudError = 'Informe o IP do PC (HOST) primeiro';
+        cloudError = 'Escaneie o QR do PC (pareamento automático)';
         notifyListeners();
       }
       return 0;
@@ -494,31 +618,79 @@ class AppController extends ChangeNotifier {
       cloudError = null;
       notifyListeners();
     }
-    try {
-      final n = await _syncClient.sync(db,
-          host: cloudHost, port: cloudPort, token: cloudToken);
-      await rebuildSchedulerFromDb();
-      await refreshHistory();
-      await refreshTags();
-      cloudLastSync = DateTime.now().toIso8601String().substring(0, 19);
-      await db.setSetting('cloud_last_sync', cloudLastSync);
-      cloudError = null;
-      notifyListeners();
-      return n;
-    } catch (e) {
-      final msg = '$e'.replaceFirst('Exception: ', '');
-      cloudError = msg;
-      notifyListeners();
-      if (!silent) rethrow;
-      return 0;
-    } finally {
-      cloudBusy = false;
-      notifyListeners();
+    final candidates = <String>[cloudHost, ...cloudAlts];
+    Exception? lastErr;
+    for (final h in candidates) {
+      try {
+        final n = await _syncClient.sync(db,
+            host: h, port: cloudPort, token: cloudToken);
+        if (h != cloudHost) {
+          // Promove: o alternativo virou o bom.
+          final old = cloudHost;
+          cloudHost = h;
+          cloudAlts = [
+            old,
+            ...cloudAlts.where((e) => e != h && e != old)
+          ].where((e) => e.isNotEmpty).toList();
+          await db.setSetting('cloud_host', cloudHost);
+          await db.setSetting('cloud_host_alts', cloudAlts.join(','));
+        }
+        await rebuildSchedulerFromDb();
+        await refreshHistory();
+        await refreshTags();
+        cloudLastSync = DateTime.now().toIso8601String().substring(0, 19);
+        await db.setSetting('cloud_last_sync', cloudLastSync);
+        cloudError = null;
+        cloudFails = 0;
+        cloudBusy = false;
+        notifyListeners();
+        return n;
+      } catch (e) {
+        lastErr = e is Exception ? e : Exception('$e');
+      }
     }
+    cloudFails++;
+    final msg =
+        '${lastErr ?? 'falha de rede'}'.replaceFirst('Exception: ', '');
+    cloudError = cloudFails >= 3
+        ? '$msg — o IP do PC pode ter mudado: escaneie o QR de novo (15s)'
+        : msg;
+    cloudBusy = false;
+    notifyListeners();
+    if (!silent && lastErr != null) throw lastErr;
+    return 0;
   }
 
-  Future<int> probeCloudHost() => _syncClient.probe(
-      cloudHost, cloudPort, cloudToken);
+  Future<int> probeCloudHost() {
+    // Tenta o principal; se falhar, tenta os alternativos e promove.
+    return _probeWithFallback();
+  }
+
+  Future<int> _probeWithFallback() async {
+    final candidates = <String>[cloudHost, ...cloudAlts];
+    Exception? lastErr;
+    for (final h in candidates) {
+      try {
+        final n =
+            await _syncClient.probe(h, cloudPort, cloudToken);
+        if (h != cloudHost) {
+          final old = cloudHost;
+          cloudHost = h;
+          cloudAlts = [
+            old,
+            ...cloudAlts.where((e) => e != h && e != old)
+          ].where((e) => e.isNotEmpty).toList();
+          await db.setSetting('cloud_host', cloudHost);
+          await db.setSetting('cloud_host_alts', cloudAlts.join(','));
+          notifyListeners();
+        }
+        return n;
+      } catch (e) {
+        lastErr = e is Exception ? e : Exception('$e');
+      }
+    }
+    throw lastErr ?? Exception('host inalcançável');
+  }
 
   /// Após mudança local (agendou/apagou), espelha no host sem travar a UI.
   Future<void> _autoSyncAfterLocalChange() async {

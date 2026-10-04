@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../core/app_controller.dart';
 import '../ui/hud_panel.dart';
@@ -201,6 +202,10 @@ class _CloudSyncPanelState extends State<CloudSyncPanel> {
                                   if (mounted) setState(() {});
                                 })),
                       ]),
+                      if (c.cloudServing) ...[
+                        const SizedBox(height: 10),
+                        _pairingQr(c),
+                      ],
                     ],
                   ),
                 ),
@@ -271,6 +276,53 @@ class _CloudSyncPanelState extends State<CloudSyncPanel> {
           ),
         );
       },
+    );
+  }
+
+  /// QR de pareamento (PC/host): nuvem + Evolution num só código.
+  /// O Android escaneia em PAREAMENTO RÁPIDO e sai configurado.
+  Widget _pairingQr(AppController c) {
+    String payload = '';
+    try {
+      payload = c.buildPairingQr();
+    } catch (_) {
+      payload = '';
+    }
+    if (payload.isEmpty) {
+      return const Text('sem rede detectada — conecte-se ao Wi-Fi',
+          style: TextStyle(color: HudColors.danger, fontSize: 11));
+    }
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: HudColors.matrix.withValues(alpha: 0.05),
+        border:
+            Border.all(color: HudColors.matrix.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('PAREAR ANDROID // ESCANEIE COM O CELULAR',
+              style: TextStyle(
+                  color: HudColors.matrix,
+                  fontSize: 10,
+                  letterSpacing: 1.4,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          const Text(
+              'No Android: PAREAMENTO RÁPIDO › ESCANEAR QR DO PC. '
+              'Configura sozinho o IP da nuvem + o WhatsApp.',
+              style: TextStyle(color: HudColors.dim, fontSize: 11)),
+          const SizedBox(height: 8),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              color: Colors.white,
+              child: QrImageView(data: payload, size: 200),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
