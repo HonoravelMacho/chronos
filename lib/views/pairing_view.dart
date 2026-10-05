@@ -272,9 +272,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
                 if (_done) break;
               }
             },
-            errorBuilder: (context, error, _) => _camDenied(
-              'Câmera indisponível (${error.errorCode}): '
-              'outro app usando? Reinicie e tente de novo.',
+            errorBuilder: (context, error) => _camDenied(
+              'Câmera indisponível: outro app usando? Reinicie e tente de novo.',
+              detail: '$error',
             ),
           ),
           // Mira tática
@@ -300,40 +300,70 @@ class _QrScanScreenState extends State<QrScanScreen> {
     );
   }
 
-  Widget _camDenied(String msg) {
+  Widget _camDenied(String msg, {String? detail}) {
     return Container(
       color: const Color(0xFF0B1220),
       padding: const EdgeInsets.all(18),
       child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.videocam_off_outlined,
-                color: HudColors.amber, size: 40),
-            const SizedBox(height: 10),
-            Text(msg,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: HudColors.text, fontSize: 12)),
-            const SizedBox(height: 12),
-            if (_canUseCamera) ...[
-              NeonButton(
-                label: 'PEDIR DE NOVO',
-                accent: HudColors.matrix,
-                filled: false,
-                icon: Icons.refresh,
-                onPressed: _askPermission,
-              ),
-              const SizedBox(height: 8),
-              NeonButton(
-                label: 'ABRIR CONFIGURAÇÕES',
-                accent: HudColors.neon,
-                filled: false,
-                icon: Icons.settings_outlined,
-                onPressed: openAppSettings,
-              ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.videocam_off_outlined,
+                  color: HudColors.amber, size: 40),
+              const SizedBox(height: 10),
+              Text(msg,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: HudColors.text, fontSize: 12)),
+              if (detail != null && detail.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDefaults.field,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: SelectableText(detail,
+                            style: const TextStyle(
+                                color: HudColors.dim,
+                                fontSize: 10)),
+                      ),
+                      IconButton(
+                        tooltip: 'Copiar erro',
+                        icon: const Icon(Icons.copy,
+                            size: 16, color: HudColors.dim),
+                        onPressed: () async {
+                          await Clipboard.setData(
+                              ClipboardData(text: detail));
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              if (_canUseCamera) ...[
+                NeonButton(
+                  label: 'PEDIR DE NOVO',
+                  accent: HudColors.matrix,
+                  filled: false,
+                  icon: Icons.refresh,
+                  onPressed: _askPermission,
+                ),
+                const SizedBox(height: 8),
+                NeonButton(
+                  label: 'ABRIR CONFIGURAÇÕES',
+                  accent: HudColors.neon,
+                  filled: false,
+                  icon: Icons.settings_outlined,
+                  onPressed: openAppSettings,
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
