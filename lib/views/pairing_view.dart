@@ -4,9 +4,12 @@
 // Android (cliente): escaneia e sai configurado — sem digitar IP.
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../core/app_controller.dart';
@@ -174,17 +177,61 @@ class QrScanScreen extends StatefulWidget {
 }
 
 class _QrScanScreenState extends State<QrScanScreen> {
-  final _ctl = MobileScannerController(
-    formats: [BarcodeFormat.qrCode],
-    detectionSpeed: DetectionSpeed.noDuplicates,
-  );
+  MobileScannerController? _ctl;
   bool _done = false;
   String? _manual;
   final _manualCtl = TextEditingController();
 
+  /// null = verificando | true = câmera liberada | false = negada
+  bool? _camOk;
+  bool _requesting = false;
+
+  /// Só mobile tem câmera utilizável; no desktop pula direto p/ colar.
+  bool get _canUseCamera {
+    try {
+      return Platform.isAndroid || Platform.isIOS;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_canUseCamera) {
+      _camOk = false;
+      return;
+    }
+    _askPermission();
+  }
+
+  /// A causa da tela preta com "!": o mobile_scanner NÃO pede a permissão
+  /// sozinho — sem este pedido em tempo de execução o Android nega e o
+  /// controller entra em erro.
+  Future<void> _askPermission() async {
+    if (_requesting) return;
+    _requesting = true;
+    try {
+      var st = await Permission.camera.status;
+      if (!st.isGranted) st = await Permission.camera.request();
+      if (!mounted) return;
+      setState(() {
+        _camOk = st.isGranted;
+        if (st.isGranted) {
+          _ctl ??= MobileScannerController(
+            formats: [BarcodeFormat.qrCode],
+            detectionSpeed: DetectionSpeed.noDuplicates,
+          );
+        }
+      });
+    } finally {
+      _requesting = false;
+    }
+  }
+
   @override
   void dispose() {
-    _ctl.dispose();
+    _ctl?.dispose();
     _manualCtl.dispose();
     super.dispose();
   }
@@ -194,6 +241,102 @@ class _QrScanScreenState extends State<QrScanScreen> {
     _done = true;
     HapticFeedback.mediumImpact();
     Navigator.of(context).pop(raw.trim());
+  }
+
+  /// Área da câmera com os 3 estados: verificando, liberada, negada.
+  /// Negada = explica + botões (pedir de novo / abrir configurações),
+  /// nunca tela preta com "!".
+  Widget _cameraArea() {
+    if (_camOk == null || _requesting) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: HudColors.neon),
+            SizedBox(height: 8),
+            Text('pedindo acesso à câmera...',
+                style: TextStyle(color: HudColors.dim, fontSize: 11)),
+          ],
+        ),
+      );
+    }
+    final ctl = _ctl;
+    if (_camOk == true && ctl != null) {
+      return Stack(
+        children: [
+          MobileScanner(
+            controller: ctl,
+            onDetect: (cap) {
+              for (final b in cap.barcodes) {
+                _emit(b.rawValue);
+                if (_done) break;
+              }
+            },
+            errorBuilder: (context, error, _) => _camDenied(
+              'Câmera indisponível (${error.errorCode}): '
+              'outro app usando? Reinicie e tente de novo.',
+            ),
+          ),
+          // Mira tática
+          Center(
+            child: Container(
+              width: 230,
+              height: 230,
+              decoration: BoxDecoration(
+                border:
+                    Border.all(color: HudColors.neon, width: 2),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    return _camDenied(
+      _canUseCamera
+          ? 'Câmera BLOQUEADA: o Android negou o acesso. '
+              'Libere em Configurações › Apps › CHRONOS › Permissões › Câmera, '
+              'ou use o código colado abaixo.'
+          : 'Sem câmera neste aparelho — use o código colado abaixo.',
+    );
+  }
+
+  Widget _camDenied(String msg) {
+    return Container(
+      color: const Color(0xFF0B1220),
+      padding: const EdgeInsets.all(18),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.videocam_off_outlined,
+                color: HudColors.amber, size: 40),
+            const SizedBox(height: 10),
+            Text(msg,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: HudColors.text, fontSize: 12)),
+            const SizedBox(height: 12),
+            if (_canUseCamera) ...[
+              NeonButton(
+                label: 'PEDIR DE NOVO',
+                accent: HudColors.matrix,
+                filled: false,
+                icon: Icons.refresh,
+                onPressed: _askPermission,
+              ),
+              const SizedBox(height: 8),
+              NeonButton(
+                label: 'ABRIR CONFIGURAÇÕES',
+                accent: HudColors.neon,
+                filled: false,
+                icon: Icons.settings_outlined,
+                onPressed: openAppSettings,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -209,27 +352,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
         children: [
           Expanded(
             flex: 3,
-            child: Stack(
-              children: [
-                MobileScanner(controller: _ctl, onDetect: (cap) {
-                  for (final b in cap.barcodes) {
-                    _emit(b.rawValue);
-                    if (_done) break;
-                  }
-                }),
-                // Mira tática
-                Center(
-                  child: Container(
-                    width: 230,
-                    height: 230,
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                          color: HudColors.neon, width: 2),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            child: _cameraArea(),
           ),
           Expanded(
             flex: 2,
