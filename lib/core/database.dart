@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'dart:io';
+import 'dart:math';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -20,6 +21,7 @@ class StoredSchedule {
     this.error = '',
     this.mediaPath = '',
     this.updatedAt = 0,
+    this.origin = '',
   });
 
   final String id;
@@ -40,6 +42,11 @@ class StoredSchedule {
   /// Relógio de sync (nuvem privada): last-write-wins pelo maior valor.
   final int updatedAt;
 
+  /// Id do aparelho que agendou (anti-duplicata PC <-> celular):
+  /// só o aparelho cujo device_id == origin entrega; vazio = legado
+  /// (qualquer aparelho pode entregar com reserva atômica).
+  final String origin;
+
   Map<String, dynamic> toSyncJson() => {
         'id': id,
         'driver': driverName,
@@ -52,6 +59,7 @@ class StoredSchedule {
         'error': error,
         'media_path': mediaPath,
         'updated_at': updatedAt,
+        'origin': origin,
       };
 
   static StoredSchedule fromSyncJson(Map<String, dynamic> j) =>
@@ -67,11 +75,13 @@ class StoredSchedule {
         error: '${j['error'] ?? ''}',
         mediaPath: '${j['media_path'] ?? ''}',
         updatedAt: (j['updated_at'] as num?)?.toInt() ?? 0,
+        origin: '${j['origin'] ?? ''}',
       );
 }
 
 class LocalDatabase {
   Database? _db;
+  String? _deviceId;
 
   Future<void> open() async {
     if (_db != null) return;
@@ -85,7 +95,7 @@ class LocalDatabase {
     _db = await databaseFactoryFfi.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 4,
+        version: 5,
         onCreate: (db, _) async {
           await db.execute(
               'CREATE TABLE messages(id TEXT PRIMARY KEY,driver TEXT,contact TEXT,'
@@ -94,7 +104,8 @@ class LocalDatabase {
               'CREATE TABLE schedules(id TEXT PRIMARY KEY,driver TEXT,contact TEXT,'
               'body TEXT,due_at INTEGER,tag TEXT,done INTEGER DEFAULT 0,'
               'status TEXT DEFAULT \'pending\',error TEXT DEFAULT \'\','
-              'media_path TEXT DEFAULT \'\',updated_at INTEGER DEFAULT 0)');
+              'media_path TEXT DEFAULT \'\',updated_at INTEGER DEFAULT 0,'
+              'origin TEXT DEFAULT \'\')');
           await db.execute(
               'CREATE TABLE tags(name TEXT PRIMARY KEY,color TEXT,updated_at INTEGER DEFAULT 0)');
           await db.execute(
@@ -136,6 +147,11 @@ class LocalDatabase {
                 'UPDATE tags SET updated_at = ? WHERE updated_at = 0 OR updated_at IS NULL',
                 [nowS]);
           }
+          // v4 -> v5: tag de origem (quem agendou é quem envia).
+          if (oldV < 5) {
+            await db.execute(
+                'ALTER TABLE schedules ADD COLUMN origin TEXT DEFAULT \'\'');
+          }
         },
       ),
     );
@@ -167,6 +183,34 @@ class LocalDatabase {
 
   static int nowSec() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
+  /// Id estável deste aparelho (gerado no 1º boot, persiste em settings).
+  /// É a "tag" que identifica quem agendou (campo `origin`): só o aparelho
+  /// cujo device_id == origin entrega o agendamento (anti-duplicata).
+  Future<String> ensureDeviceId() async {
+    if (_deviceId != null && _deviceId!.isNotEmpty) return _deviceId!;
+    var id = await getSetting('device_id');
+    if (id == null || id.trim().isEmpty) {
+      final r = Random.secure();
+      final a = r.nextInt(1 << 32).toRadixString(16);
+      final b = r.nextInt(1 << 32).toRadixString(16);
+      id = '$a$b'.padLeft(16, '0').substring(0, 16);
+      await setSetting('device_id', id);
+      // Migração v5 (1x): pendentes antigos ganham o id local; o merge
+      // LWW do sync deixa UM único origin depois do 1º pareamento.
+      try {
+        await _db!.update(
+            'schedules',
+            {'origin': id, 'updated_at': nowSec()},
+            where: "done = 0 AND status = 'pending' "
+                "AND (origin = '' OR origin IS NULL)");
+      } catch (_) {
+        // coluna origin ausente (db antigo): próximo open() migra
+      }
+    }
+    _deviceId = id.trim();
+    return _deviceId!;
+  }
+
   Future<void> saveSchedule(StoredSchedule s) async {
     final upd = s.updatedAt > 0 ? s.updatedAt : nowSec();
     await _db!.insert(
@@ -174,7 +218,8 @@ class LocalDatabase {
       {'id': s.id, 'driver': s.driverName, 'contact': s.contactId,
        'body': s.text, 'due_at': s.dueAtUnix, 'tag': s.tag,
        'done': s.done ? 1 : 0, 'status': s.status, 'error': s.error,
-       'media_path': s.mediaPath, 'updated_at': upd},
+       'media_path': s.mediaPath, 'updated_at': upd,
+       'origin': s.origin},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
     // Ressuscita: se re-salvou, não é mais "deletado".
@@ -246,6 +291,7 @@ class LocalDatabase {
               error: (r['error'] as String?) ?? '',
               mediaPath: (r['media_path'] as String?) ?? '',
               updatedAt: ((r['updated_at'] as num?)?.toInt() ?? 0),
+              origin: (r['origin'] as String?) ?? '',
             ))
         .toList();
   }

@@ -105,6 +105,7 @@ class _CalendarFullscreenViewState extends State<CalendarFullscreenView> {
       quickTimes: widget.controller.quickTimes,
       tags: widget.controller.tags,
       quickMessages: widget.controller.quickMessages,
+      onSaved: widget.controller.autoSyncAfterLocalChange,
     );
     setState(() {});
   }

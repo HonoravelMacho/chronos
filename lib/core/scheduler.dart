@@ -15,6 +15,7 @@ class ScheduledJob {
     this.tag = '',
     required this.dueAtUnix,
     this.attachmentPath = '',
+    this.origin = '',
   });
 
   final String id;
@@ -26,6 +27,10 @@ class ScheduledJob {
 
   /// Anexo local (pdf/imagem/audio/video) — vazio = só texto.
   final String attachmentPath;
+
+  /// Id do aparelho que agendou (device_id). Só ele entrega; vazio =
+  /// agendamento legado (reserva atômica local decide quem envia).
+  final String origin;
 }
 
 typedef DueCallback = Future<void> Function(ScheduledJob job);
@@ -71,7 +76,7 @@ class Scheduler extends ChangeNotifier {
         ? ScheduledJob(
             id: newId(), driverName: job.driverName, contactId: job.contactId,
             text: job.text, tag: job.tag, dueAtUnix: job.dueAtUnix,
-            attachmentPath: job.attachmentPath)
+            attachmentPath: job.attachmentPath, origin: job.origin)
         : job;
     // Sem duplicatas: requeue do mesmo id substitui (offline -> pendente).
     _jobs.removeWhere((e) => e.id == j.id);

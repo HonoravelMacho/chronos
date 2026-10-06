@@ -172,6 +172,52 @@ class WhatsAppDriver extends NetworkDriver {
     await _json('PUT', '/instance/restart/${_config.instance}');
   }
 
+  DateTime? _lastAutoRestart;
+
+  /// Keep-alive (app: 60s; daemon: a cada varredura): mantém a conexão
+  /// viva sem ação manual — valida o socket, reinicia sessão travada
+  /// (throttle 10min, nunca durante pareamento/QR) e atualiza o status.
+  /// Nunca lança.
+  Future<void> keepAlive() async {
+    if (!_config.isConfigured) return;
+    try {
+      if (await isConnected()) {
+        _status = DriverStatus(
+            connected: true, state: 'online',
+            detail: 'evolution: conectado', accountId: _config.instance);
+        _lastConnOk = true;
+        _lastConnCheck = DateTime.now();
+        return;
+      }
+      final now = DateTime.now();
+      final stale = _lastAutoRestart == null ||
+          now.difference(_lastAutoRestart!) >= const Duration(minutes: 10);
+      // 'connecting' = usuário escaneando QR: não reinicia (perderia o QR).
+      if (stale && _status.state != 'connecting') {
+        _lastAutoRestart = now;
+        try {
+          await restartInstance();
+        } on DriverException {
+          // Evolution fora do ar: connect() logo abaixo diagnostica
+        }
+        await Future<void>.delayed(const Duration(seconds: 3));
+        if (await isConnected()) {
+          _status = DriverStatus(
+              connected: true, state: 'online',
+              detail: 'evolution: reconectada', accountId: _config.instance);
+          _lastConnOk = true;
+          _lastConnCheck = DateTime.now();
+          return;
+        }
+      }
+      await connect(); // atualiza o status com o diagnóstico real
+    } on DriverException {
+      // keep-alive nunca derruba o app
+    } catch (_) {
+      // idem
+    }
+  }
+
   /// Apaga a instância para recriar do zero (resolve 403/QR ilegível).
   Future<void> deleteInstance() async {
     await _json('DELETE', '/instance/delete/${_config.instance}');

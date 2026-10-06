@@ -235,7 +235,9 @@ class _DaemonCardState extends State<DaemonCard> {
         children: [
           const Text(
               'Com o daemon ATIVO, o PC entrega sozinho com o app '
-              'fechado (service systemd --user, a cada 30s).',
+              'fechado (service systemd --user, a cada 30s) — inclusive '
+              'agendado no celular: quem agendou tem 2min de prioridade, '
+              'depois o daemon assume. Travou? REINICIAR.',
               style: TextStyle(color: HudColors.dim, fontSize: 11)),
           const SizedBox(height: 8),
           Row(children: [
@@ -257,6 +259,15 @@ class _DaemonCardState extends State<DaemonCard> {
                     icon: Icons.monitor_heart,
                     onPressed:
                         _busy ? null : () => _run(['--status']))),
+            const SizedBox(width: 8),
+            Expanded(
+                child: NeonButton(
+                    label: 'REINICIAR',
+                    accent: HudColors.amber,
+                    filled: false,
+                    icon: Icons.restart_alt,
+                    onPressed:
+                        _busy ? null : () => _run(['--restart']))),
             const SizedBox(width: 8),
             Expanded(
                 child: NeonButton(

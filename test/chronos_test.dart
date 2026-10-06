@@ -46,6 +46,34 @@ void main() {
       expect(Scheduler.isStale(now - 3600, now), isFalse);
       expect(Scheduler.isStale(now + 3600, now), isFalse);
     });
+
+    test('job carrega origin (quem agendou é quem envia)', () {
+      final s = Scheduler();
+      final id = s.schedule(ScheduledJob(
+          id: 'o1', driverName: 'whatsapp', contactId: 'wa:1',
+          text: 'oi', dueAtUnix: Scheduler.nowUnix() + 60,
+          origin: 'pc-abc123'));
+      expect(s.jobs.single.origin, 'pc-abc123');
+      // requeue (sem id) preserva a origem
+      final id2 = s.schedule(ScheduledJob(
+          id: '', driverName: 'whatsapp', contactId: 'wa:1',
+          text: 'oi2', dueAtUnix: Scheduler.nowUnix() + 60,
+          origin: 'cel-xyz789'));
+      expect(id2, isNot(id));
+      final requeued =
+          s.jobs.firstWhere((j) => j.id == id2);
+      expect(requeued.origin, 'cel-xyz789');
+      s.dispose();
+    });
+
+    test('job sem origin (legado) tem origin vazio', () {
+      final s = Scheduler();
+      s.schedule(ScheduledJob(
+          id: 'l1', driverName: 'whatsapp', contactId: 'wa:1',
+          text: 'oi', dueAtUnix: Scheduler.nowUnix() + 60));
+      expect(s.jobs.single.origin, '');
+      s.dispose();
+    });
   });
 
   group('WhatsAppDriver (mock Evolution v2.3)', () {

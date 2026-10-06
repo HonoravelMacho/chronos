@@ -23,6 +23,9 @@ class AppController extends ChangeNotifier {
   final Scheduler scheduler = Scheduler();
   final List<NetworkDriver> drivers = [];
 
+  /// Id deste aparelho (tag que identifica quem agendou — anti-duplicata).
+  String deviceId = '';
+
   List<Contact> contacts = [];
   bool contactsLoading = false;
   String? contactsError;
@@ -124,6 +127,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> init() async {
     await db.open();
+    deviceId = await db.ensureDeviceId();
     DriverRegistry.instance.register('whatsapp', () => WhatsAppDriver());
     DriverRegistry.instance.register('telegram', () => TelegramDriver());
     drivers.addAll(DriverRegistry.instance.createAll());
@@ -146,6 +150,14 @@ class AppController extends ChangeNotifier {
     // Tick ao vivo: reserva atômica (se o daemon já pegou, pula) e
     // registra o desfecho — nada mais "some": erro fica vermelho.
     scheduler.start((job) async {
+      // Anti-duplicata PC <-> celular: só o aparelho que AGENDOU envia
+      // (job.origin = device_id de quem criou). Os outros só espelham no
+      // calendário; se o origin não entregar, o daemon do PC assume
+      // após 2min (mesma regra, reserva atômica no mesmo banco).
+      if (job.origin.isNotEmpty && job.origin != deviceId) {
+        notifyListeners();
+        return;
+      }
       var claimed = false;
       try {
         claimed = await db.claimSchedule(job.id);
@@ -166,7 +178,7 @@ class AppController extends ChangeNotifier {
                 id: job.id, driverName: job.driverName,
                 contactId: job.contactId, text: job.text, tag: job.tag,
                 dueAtUnix: job.dueAtUnix,
-                mediaPath: job.attachmentPath));
+                mediaPath: job.attachmentPath, origin: job.origin));
             break;
           }
           try {
@@ -196,21 +208,29 @@ class AppController extends ChangeNotifier {
     final now = Scheduler.nowUnix();
     final stored = await db.listSchedules();
     for (final s in stored) {
+      final mine = s.origin.isEmpty || s.origin == deviceId;
       if (s.status == 'sending' && s.dueAtUnix > now) {
         // Crash no meio do envio: devolve à fila.
         await db.saveSchedule(StoredSchedule(
             id: s.id, driverName: s.driverName, contactId: s.contactId,
             text: s.text, tag: s.tag, dueAtUnix: s.dueAtUnix,
-            mediaPath: s.mediaPath));
+            mediaPath: s.mediaPath, origin: s.origin));
       } else if (s.dueAtUnix <= now) {
+        if (!mine && !Scheduler.isStale(s.dueAtUnix, now)) {
+          // Origem é outro aparelho (daemon do PC faz catch-up até 24h):
+          // não expira aqui — o origin pode estar a minutos de enviar.
+          continue;
+        }
         await db.finishSchedule(s.id, 'expired',
-            error: 'venceu com o app/daemon fechados');
+            error: mine
+                ? 'venceu com o app/daemon fechados'
+                : 'origem fora do ar e venceu há +24h');
         continue;
       }
       scheduler.schedule(ScheduledJob(
           id: s.id, driverName: s.driverName, contactId: s.contactId,
           text: s.text, tag: s.tag, dueAtUnix: s.dueAtUnix,
-          attachmentPath: s.mediaPath));
+          attachmentPath: s.mediaPath, origin: s.origin));
     }
     tags = await db.listTags();
     await loadQuickTimes();
@@ -218,6 +238,9 @@ class AppController extends ChangeNotifier {
     await loadCloudConfig();
     await _applyCloudMode();
     await refreshHistory();
+    _waKeepAlive?.cancel();
+    _waKeepAlive = Timer.periodic(
+        const Duration(seconds: 60), (_) => _keepAliveWhatsApp());
     notifyListeners();
   }
 
@@ -324,19 +347,21 @@ class AppController extends ChangeNotifier {
     String tag = '',
     String attachmentPath = '',
   }) async {
+    // Tag de origem: este aparelho agendou -> só este aparelho envia.
+    final origin = deviceId.isNotEmpty ? deviceId : await db.ensureDeviceId();
     final id = scheduler.schedule(ScheduledJob(
         id: '', driverName: contact.driverName, contactId: contact.id,
         text: text, tag: tag,
         dueAtUnix: due.millisecondsSinceEpoch ~/ 1000,
-        attachmentPath: attachmentPath));
+        attachmentPath: attachmentPath, origin: origin));
     await db.saveSchedule(StoredSchedule(
         id: id, driverName: contact.driverName, contactId: contact.id,
         text: text, tag: tag,
         dueAtUnix: due.millisecondsSinceEpoch ~/ 1000,
-        mediaPath: attachmentPath));
+        mediaPath: attachmentPath, origin: origin));
     await refreshHistory();
     notifyListeners();
-    unawaited(_autoSyncAfterLocalChange());
+    unawaited(autoSyncAfterLocalChange());
     return id;
   }
 
@@ -345,7 +370,7 @@ class AppController extends ChangeNotifier {
     await db.deleteSchedule(id);
     await refreshHistory();
     notifyListeners();
-    unawaited(_autoSyncAfterLocalChange());
+    unawaited(autoSyncAfterLocalChange());
   }
 
   Future<void> refreshTags() async {
@@ -375,6 +400,20 @@ class AppController extends ChangeNotifier {
   ChronosSyncServer? _syncServer;
   final ChronosSyncClient _syncClient = ChronosSyncClient();
   Timer? _cloudTimer;
+
+  /// Keep-alive do WhatsApp (60s): valida o socket e reconecta sozinho —
+  /// a conexão dura enquanto o app estiver aberto, sem ação manual.
+  Timer? _waKeepAlive;
+
+  Future<void> _keepAliveWhatsApp() async {
+    final wa = whatsapp;
+    if (wa == null) return;
+    final before = '${wa.status.state}:${wa.status.connected}';
+    await wa.keepAlive();
+    if ('${wa.status.state}:${wa.status.connected}' != before) {
+      notifyListeners();
+    }
+  }
 
   Future<void> loadCloudConfig() async {
     try {
@@ -562,6 +601,14 @@ class AppController extends ChangeNotifier {
 
   Future<void> startCloudHost() async {
     _syncServer ??= ChronosSyncServer(db);
+    // Push do celular aplicado -> reconstrói a fila e repinta o calendário
+    // do PC na hora (sem esperar interação/restart).
+    _syncServer!.onApplied = () async {
+      await rebuildSchedulerFromDb();
+      await refreshHistory();
+      await refreshTags();
+      notifyListeners();
+    };
     try {
       final p = await _syncServer!.start(port: cloudPort);
       cloudPort = p;
@@ -596,7 +643,7 @@ class AppController extends ChangeNotifier {
       jobs.add(ScheduledJob(
           id: s.id, driverName: s.driverName, contactId: s.contactId,
           text: s.text, tag: s.tag, dueAtUnix: s.dueAtUnix,
-          attachmentPath: s.mediaPath));
+          attachmentPath: s.mediaPath, origin: s.origin));
     }
     scheduler.replaceAll(jobs);
   }
@@ -693,7 +740,9 @@ class AppController extends ChangeNotifier {
   }
 
   /// Após mudança local (agendou/apagou), espelha no host sem travar a UI.
-  Future<void> _autoSyncAfterLocalChange() async {
+  /// Público p/ o sheet de agendamento disparar o sync imediato (sem
+  /// esperar o timer de 15s — fecha o app antes dele e o PC não vê).
+  Future<void> autoSyncAfterLocalChange() async {
     if (cloudMode != 'client' || cloudHost.isEmpty || cloudBusy) return;
     try {
       await syncNow(silent: true);
@@ -703,6 +752,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _cloudTimer?.cancel();
+    _waKeepAlive?.cancel();
     scheduler.dispose();
     super.dispose();
   }

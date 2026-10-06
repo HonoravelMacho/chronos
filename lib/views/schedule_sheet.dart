@@ -29,6 +29,7 @@ Future<void> showScheduleSheet({
   List<String> quickTimes = const [],
   Map<String, String> tags = const {},
   List<Map<String, String>> quickMessages = const [],
+  Future<void> Function()? onSaved,
 }) async {
   Contact? picked = initialContact ??
       (contacts.isNotEmpty ? contacts.first : null);
@@ -582,6 +583,9 @@ Future<void> showScheduleSheet({
                                 return;
                               }
                               final target = picked!;
+                              // Tag de origem: este aparelho agendou ->
+                              // só ele envia (anti-duplicata PC <-> celular).
+                              final origin = await db.ensureDeviceId();
                               final id = scheduler
                                   .schedule(ScheduledJob(
                                       id: '',
@@ -596,7 +600,9 @@ Future<void> showScheduleSheet({
                                               .millisecondsSinceEpoch ~/
                                           1000,
                                       attachmentPath:
-                                          mediaPath));
+                                          mediaPath,
+                                      origin:
+                                          origin));
                               await db.saveSchedule(
                                   StoredSchedule(
                                       id: id,
@@ -611,7 +617,14 @@ Future<void> showScheduleSheet({
                                               .millisecondsSinceEpoch ~/
                                           1000,
                                       mediaPath:
-                                          mediaPath));
+                                          mediaPath,
+                                      origin: origin));
+                              // Espelha no PC na hora (não espera o timer
+                              // de 15s — fechar o app antes dele perdia o
+                              // agendamento do lado do host).
+                              if (onSaved != null) {
+                                await onSaved();
+                              }
                               if (context.mounted) {
                                 Navigator.pop(context);
                               }

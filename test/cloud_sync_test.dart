@@ -1,6 +1,7 @@
 // CHRONOS — testes da nuvem privada (merge last-write-wins + lápides).
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:chronos_hub/core/database.dart';
 import 'package:chronos_hub/core/sync_protocol.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -86,6 +87,64 @@ void main() {
       expect(rt.schedules.single['updated_at'], 123);
       expect(rt.tags['t']!['color'], '#00E5FF');
       expect(rt.deleted['gone'], 9);
+    });
+  });
+
+  group('Origin (anti-duplicata PC <-> celular)', () {
+    test('StoredSchedule carrega origin no roundtrip do sync', () {
+      final s = StoredSchedule(
+          id: 'a',
+          driverName: 'whatsapp',
+          contactId: 'wa:1',
+          text: 'oi',
+          dueAtUnix: 123,
+          origin: 'pc-abc123');
+      final rt = StoredSchedule.fromSyncJson(s.toSyncJson());
+      expect(rt.origin, 'pc-abc123');
+      expect(rt.toSyncJson()['origin'], 'pc-abc123');
+    });
+
+    test('sync json sem origin (versão antiga) vira vazio, não null', () {
+      final rt = StoredSchedule.fromSyncJson(sch('a', 100));
+      expect(rt.origin, '');
+    });
+
+    test('merge mantém o origin junto com o registro vencedor (LWW)', () {
+      final local = SyncSnapshot(
+          schedules: [
+            {...sch('a', 200), 'origin': 'pc'}
+          ],
+          tags: {},
+          deleted: {});
+      final remote = SyncSnapshot(
+          schedules: [
+            {...sch('a', 100), 'origin': 'cel'}
+          ],
+          tags: {},
+          deleted: {});
+      final m = SyncMerge.merge(local, remote);
+      expect(m.schedules.single['origin'], 'pc'); // updated_at200 >100
+      final m2 = SyncMerge.merge(remote, local);
+      expect(m2.schedules.single['origin'], 'pc');
+    });
+
+    test('merge de listas distintas preserva origin de cada linha', () {
+      final local = SyncSnapshot(
+          schedules: [
+            {...sch('a', 100), 'origin': 'pc'}
+          ],
+          tags: {},
+          deleted: {});
+      final remote = SyncSnapshot(
+          schedules: [
+            {...sch('b', 100), 'origin': 'cel'}
+          ],
+          tags: {},
+          deleted: {});
+      final m = SyncMerge.merge(local, remote);
+      final byId = {for (final s in m.schedules) s['id']: s['origin']};
+      expect(byId['a'], 'pc');
+      expect(byId['b'], 'cel');
     });
   });
 }

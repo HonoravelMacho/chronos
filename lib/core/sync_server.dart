@@ -21,6 +21,11 @@ class ChronosSyncServer {
   final LocalDatabase _db;
   HttpServer? _server;
 
+  /// Após um push do cliente ser persistido, o host reconstrói a fila e
+  /// repinta o calendário (sem isso, o PC ficava com a tela velha até o
+  /// próximo sync manual — "calendário do PC não sincroniza").
+  Future<void> Function()? onApplied;
+
   bool get serving => _server != null;
   int get port => _server?.port ?? 0;
 
@@ -102,6 +107,11 @@ class ChronosSyncServer {
         final local = await _localSnapshot();
         final merged = SyncMerge.merge(local, incoming);
         await _applySnapshot(merged);
+        try {
+          await onApplied?.call();
+        } catch (_) {
+          // UI refresh é best-effort: push já persistido
+        }
         final fresh = await _localSnapshot();
         final body = fresh.toJson()..['ok'] = true;
         req.response.headers.contentType = ContentType.json;

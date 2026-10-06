@@ -147,8 +147,11 @@ id local e deixe o `Scheduler` disparar; nunca faça I/O na thread da UI.
 - **Estados da mensagem (sem nada que "suma"):** etiqueta em cada item —
   🟡 `PENDENTE` · 🟢 `ENVIADA` · 🔴 `ERRO`/`EXPIRADA` (com o motivo).
   O calendário mostra o histórico do dia (enviadas + erros) com os
-  contadores verde/vermelho nas células. Reserva atômica no banco impede
-  entrega dupla app × daemon; catch-up do daemon até 24h.
+  contadores verde/vermelho nas células. **Anti-duplicata em 2 camadas:**
+  cada agendamento carrega a tag `origin` (device_id de quem criou — só o
+  aparelho que agendou envia, sincronizada PC ↔ celular) + reserva atômica
+  no banco (impede entrega dupla app × daemon na mesma máquina);
+  catch-up do daemon até 24h.
 - **Seletor tático:** lista unificada Contatos/Grupos/Canais/Comunidades
   (WhatsApp + Telegram) com filtro instantâneo `>_` estilo terminal e chips
   por kind/driver; grade 2 colunas no desktop, lista no mobile.
@@ -165,9 +168,10 @@ id local e deixe o `Scheduler` disparar; nunca faça I/O na thread da UI.
   no PC escolha `PC = HOST` + **ATIVAR NUVEM**; no celular escolha
   `CEL = CLIENTE`, HOST = IP do PC + mesma porta/token + **SINCRONIZAR**.
   Two-way com `updated_at` (last-write-wins) + lápides de exclusão: quem
-  agenda em qualquer lado aparece em todos (auto-sync a cada 60s + após
-  agendar/apagar). Servidor: `GET /chronos/v1/status|pull`,
-  `POST /chronos/v1/push` na porta 7878 (LAN).
+  agenda em qualquer lado aparece em todos (auto-sync a cada 15s + após
+  agendar/apagar). Só o aparelho que agendou **envia** (tag `origin` no
+  registro); o outro apenas espelha no calendário. Servidor:
+  `GET /chronos/v1/status|pull`, `POST /chronos/v1/push` na porta 7878 (LAN).
 - **Horários de recomendação:** aba CONFIG — edite os chips (padrão
   PowerZap 05:00→23:00) usados no agendamento.
 - **Fontes:** `JetBrainsMono` estilo terminal (Orbitron-compatível para
@@ -217,22 +221,33 @@ assinatura, auto-refresh a cada 20s no pareamento).
 
 ### Quem dispara? App aberto ou daemon (2º plano)
 
-O agendador em memória só dispara com o app **aberto** — vale para
-qualquer aparelho (PC ou celular): quem estiver acordado na hora, entrega.
+Regra anti-duplicata: **quem agendou é quem envia** (tag `origin` =
+device_id do aparelho, sincronizada PC ↔ celular). O aparelho do outro
+lado só espelha no calendário. Se quem agendou não enviar em **2min**
+(app fechado/desligado), o **daemon do PC assume** — o envio nunca some
+e nunca sai em dobro (reserva atômica no mesmo banco decide app × daemon).
+
 Para o PC entregar **com o app fechado**, ative o daemon Linux
 (`tool/chronos_daemon.dart`, headless, polls a cada 30s no mesmo banco):
 
 ```bash
 /opt/chronos/chronos_daemon --install   # service systemd --user + ativa
 /opt/chronos/chronos_daemon --status    # confere se está ATIVO
+/opt/chronos/chronos_daemon --restart   # REINICIA em 1 toque (bug/travou)
 /opt/chronos/chronos_daemon --once      # 1 varredura manual (debug)
 /opt/chronos/chronos_daemon --uninstall # para + desativa
 ```
 
-Ou pelo app: aba **DASH** → card **ENTREGA EM 2º PLANO** → **ATIVAR**.
-No Android não há daemon (sistema não permite): mantenha o app aberto
-na hora agendada — o app é edge-to-edge (tela cheia, sem botões do
-sistema sobre o menu).
+O daemon também **reconecta sozinho**: valida o socket da Evolution a cada
+varredura e reinicia a sessão travada (throttle 10min) — a conexão dura
+enquanto o PC estiver ligado. O serviço tem `Restart=always` +
+`StartLimitIntervalSec=0` (nunca desiste após crash). No app, keep-alive
+de 60s mantém o WhatsApp vivo enquanto o app aberto.
+
+Ou pelo app: aba **DASH** → card **ENTREGA EM 2º PLANO** → **ATIVAR** /
+**REINICIAR**. No Android não há daemon (sistema não permite): mantenha o
+app aberto na hora agendada ou deixe o daemon do PC como reserva — o app é
+edge-to-edge (tela cheia, sem botões do sistema sobre o menu).
 
 ---
 
