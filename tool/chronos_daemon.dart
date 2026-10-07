@@ -93,6 +93,8 @@ bool _dbFlagDisabled(String dbPath) {
   MiniDb? db;
   try {
     db = MiniDb.open(dbPath, loadSqlite());
+    db.execute('PRAGMA journal_mode = WAL');
+    db.execute('PRAGMA busy_timeout = 10000');
     final rows = db.query(
         "SELECT value FROM settings WHERE key='whatsapp_disabled' LIMIT 1");
     if (rows.isEmpty) return false;
@@ -313,7 +315,10 @@ Future<int> runOnce(
   }
   final db = MiniDb.open(dbFile.path, loadSqlite());
   try {
-    db.execute('PRAGMA busy_timeout = 5000');
+    // Concorrência com o app (mesmo .db): WAL + espera em vez de falhar.
+    // Sem isso, o BOOT do app quebra com "database is locked" (code 5).
+    db.execute('PRAGMA journal_mode = WAL');
+    db.execute('PRAGMA busy_timeout = 10000');
     final tables = db
         .query("SELECT name FROM sqlite_master WHERE type='table'")
         .map((r) => r['name'] as String)

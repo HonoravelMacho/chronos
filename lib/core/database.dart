@@ -96,6 +96,15 @@ class LocalDatabase {
       path,
       options: OpenDatabaseOptions(
         version: 5,
+        // onConfigure roda ANTES das migrações: sem isso, o BEGIN
+        // EXCLUSIVE da migração colidia com o daemon (mesmo .db) e o
+        // app morria no boot com "database is locked" (code 5).
+        // WAL = leitor não bloqueia escritor; busy_timeout = escritor
+        // espera em vez de falhar.
+        onConfigure: (db) async {
+          await db.execute('PRAGMA busy_timeout = 10000');
+          await db.execute('PRAGMA journal_mode = WAL');
+        },
         onCreate: (db, _) async {
           await db.execute(
               'CREATE TABLE messages(id TEXT PRIMARY KEY,driver TEXT,contact TEXT,'
@@ -116,26 +125,36 @@ class LocalDatabase {
               'CREATE TABLE IF NOT EXISTS deleted_schedules(id TEXT PRIMARY KEY,deleted_at INTEGER)');
         },
         onUpgrade: (db, oldV, _) async {
+          // Migrações idempotentes: o daemon headless pode já ter criado
+          // as colunas via ALTER direto (sem bump de user_version) — sem o
+          // guarda, o boot morria com "duplicate column name" (code 1).
+          Future<void> addCol(
+              String table, String column, String ddl) async {
+            final info = await db.rawQuery('PRAGMA table_info($table)');
+            final names = {for (final r in info) '${r['name']}'};
+            if (!names.contains(column)) {
+              await db.execute('ALTER TABLE $table ADD COLUMN $ddl');
+            }
+          }
           // v1 -> v2: rastreio de estado (verde/amarelo/vermelho).
           if (oldV < 2) {
-            await db.execute(
-                'ALTER TABLE schedules ADD COLUMN status TEXT DEFAULT \'pending\'');
-            await db.execute(
-                'ALTER TABLE schedules ADD COLUMN error TEXT DEFAULT \'\'');
+            await addCol(
+                'schedules', 'status', 'status TEXT DEFAULT \'pending\'');
+            await addCol('schedules', 'error', 'error TEXT DEFAULT \'\'');
           }
           // v2 -> v3: anexo de mídia + tabela de configurações.
           if (oldV < 3) {
-            await db.execute(
-                'ALTER TABLE schedules ADD COLUMN media_path TEXT DEFAULT \'\'');
+            await addCol(
+                'schedules', 'media_path', 'media_path TEXT DEFAULT \'\'');
             await db.execute(
                 'CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT)');
           }
           // v3 -> v4: nuvem privada (sync PC <-> celular, last-write-wins).
           if (oldV < 4) {
-            await db.execute(
-                'ALTER TABLE schedules ADD COLUMN updated_at INTEGER DEFAULT 0');
-            await db.execute(
-                'ALTER TABLE tags ADD COLUMN updated_at INTEGER DEFAULT 0');
+            await addCol('schedules', 'updated_at',
+                'updated_at INTEGER DEFAULT 0');
+            await addCol(
+                'tags', 'updated_at', 'updated_at INTEGER DEFAULT 0');
             await db.execute(
                 'CREATE TABLE IF NOT EXISTS deleted_schedules(id TEXT PRIMARY KEY,deleted_at INTEGER)');
             // Backfill: quem não tem relógio usa due_at (ordenação estável).
@@ -149,8 +168,8 @@ class LocalDatabase {
           }
           // v4 -> v5: tag de origem (quem agendou é quem envia).
           if (oldV < 5) {
-            await db.execute(
-                'ALTER TABLE schedules ADD COLUMN origin TEXT DEFAULT \'\'');
+            await addCol(
+                'schedules', 'origin', 'origin TEXT DEFAULT \'\'');
           }
         },
       ),
