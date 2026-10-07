@@ -46,6 +46,8 @@ class _SyncPanelState extends State<SyncPanel> {
   String? _pairCode;
   bool _probing = false;
   bool _pairing = false;
+  bool _syncing = false;
+  bool _autoDetecting = false;
   Uint8List? _qr;
   bool _qrLoading = false;
   bool _restarting = false;
@@ -175,6 +177,105 @@ class _SyncPanelState extends State<SyncPanel> {
     setState(() {});
   }
 
+  /// 1 clique = sincronizar: salva a config atual (ou padrão), limpa a
+  /// pausa do DESCONECTAR, conecta e já busca o QR. É o botão grande do PC.
+  Future<void> _oneClickSync() async {
+    final wa = _wa;
+    if (wa == null || _syncing) return;
+    setState(() {
+      _syncing = true;
+      _error = null;
+    });
+    try {
+      // Se o usuário nunca preencheu nada, tenta adivinhar sozinho
+      // (localhost:8080 → 8081) antes de pedir a chave.
+      if (_key.text.trim().isEmpty) {
+        await _autoDetect(silent: true);
+      }
+      if (_key.text.trim().isEmpty) {
+        setState(() {
+          _editing = true;
+          _error = 'Digite a API KEY da Evolution e toque SALVAR + CONECTAR '
+              '(é a mesma chave do docker: AUTHENTICATION_API_KEY).';
+        });
+        return;
+      }
+      final cfg = _formConfig();
+      await saveEvolutionConfig(cfg);
+      wa.setConfig(cfg);
+      await widget.controller.connectWhatsapp();
+      await widget.controller.refreshContacts();
+      setState(() {
+        _editing = false;
+        _qr = null;
+        _qrFailures = 0;
+      });
+      if (mounted && wa.status.state != 'online') {
+        await _fetchQr();
+      }
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+  }
+
+  /// Procura a Evolution nas portas usuais do PC (8080/8081, localhost e
+  /// 127.0.0.1) com a chave digitada. Se achar, preenche host/porta.
+  Future<bool> _autoDetect({bool silent = false}) async {
+    final wa = _wa;
+    if (wa == null || _autoDetecting) return false;
+    setState(() {
+      _autoDetecting = true;
+      if (!silent) _error = null;
+    });
+    try {
+      final key = _key.text.trim();
+      final prev = wa.config;
+      final tried = <String>{};
+      final candidates = <String>[
+        _formConfig().baseUrl,
+        EvolutionConfig.buildBaseUrl(
+            scheme: prev.scheme, host: _host.text.trim().isEmpty ? 'localhost' : _host.text.trim(), port: 8080),
+        EvolutionConfig.buildBaseUrl(scheme: prev.scheme, host: 'localhost', port: 8080),
+        EvolutionConfig.buildBaseUrl(scheme: prev.scheme, host: '127.0.0.1', port: 8080),
+        EvolutionConfig.buildBaseUrl(scheme: prev.scheme, host: 'localhost', port: 8081),
+        EvolutionConfig.buildBaseUrl(scheme: prev.scheme, host: '127.0.0.1', port: 8081),
+      ];
+      for (final base in candidates) {
+        if (!tried.add(base)) continue;
+        wa.setConfig(EvolutionConfig(
+            baseUrl: base,
+            apiKey: key,
+            instance: _instance.text.trim().isEmpty
+                ? 'chronos'
+                : _instance.text.trim(),
+            ownerNumber: _owner.text.trim()));
+        final r = await wa.probeServer();
+        if (r.ok) {
+          final u = Uri.parse(base);
+          if (mounted) {
+            setState(() {
+              _host.text = u.host;
+              _port.text = '${u.hasPort ? u.port : 8080}';
+              _probe = r.detail;
+              _probeOk = true;
+            });
+          }
+          return true;
+        }
+      }
+      // Restaura o que o usuário tinha digitado.
+      wa.setConfig(_formConfig());
+      if (mounted && !silent) {
+        setState(() => _error =
+            'Evolution não encontrada em 8080/8081 — suba com:\n'
+            'EVO_KEY=sua-chave docker compose -f docker/evolution-compose.yml up -d');
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => _autoDetecting = false);
+    }
+  }
+
   Future<void> _fetchQr() async {
     final wa = _wa;
     if (wa == null || _qrLoading) return;
@@ -290,6 +391,58 @@ class _SyncPanelState extends State<SyncPanel> {
                   state: st.state,
                   detail: st.detail),
               const SizedBox(height: 8),
+              // BOTÃO HERÓI (PC): 1 toque sincroniza e gera o QR.
+              // Sempre visível enquanto não conectado — sem caçar config.
+              if (!st.connected) ...[
+                NeonButton(
+                    label: _syncing
+                        ? 'SINCRONIZANDO...'
+                        : '🔄 SINCRONIZAR WHATSAPP • GERAR QR',
+                    accent: HudColors.matrix,
+                    icon: Icons.qr_code_2,
+                    onPressed: _syncing ? null : _oneClickSync),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(
+                      child: NeonButton(
+                          label: _autoDetecting
+                              ? 'PROCURANDO...'
+                              : 'DETECTAR AUTOMÁTICO',
+                          accent: HudColors.neon,
+                          filled: false,
+                          icon: Icons.radar,
+                          onPressed: _autoDetecting
+                              ? null
+                              : () => _autoDetect())),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: NeonButton(
+                          label: 'CONFIG MANUAL',
+                          accent: HudColors.dim,
+                          filled: false,
+                          icon: Icons.settings,
+                          onPressed: _editConfig)),
+                ]),
+                const SizedBox(height: 8),
+              ],
+              if (!st.connected &&
+                  widget.controller.whatsappDisabled) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: HudColors.amber.withValues(alpha: 0.07),
+                    border: Border.all(
+                        color: HudColors.amber.withValues(alpha: 0.5)),
+                  ),
+                  child: const Text(
+                      '⏸ WHATSAPP DESCONECTADO POR VOCÊ — app e daemon em '
+                      'espera (nada entrega, nada reconecta sozinho). Para '
+                      'voltar, toque SINCRONIZAR acima e escaneie o QR.',
+                      style: TextStyle(
+                          color: HudColors.amber, fontSize: 11)),
+                ),
+              ],
               if (st.connected) ...[
                 const Text('LINK ESTABELECIDO // CANAL SEGURO',
                     style: TextStyle(
@@ -304,8 +457,11 @@ class _SyncPanelState extends State<SyncPanel> {
                           accent: HudColors.danger,
                           filled: false,
                           onPressed: () async {
-                            await wa.disconnect();
-                            setState(() {});
+                            // Logout real + pausa o daemon (só volta no SINCRONIZAR).
+                            await widget.controller.disconnectWhatsapp();
+                            setState(() {
+                              _qr = null;
+                            });
                           })),
                   const SizedBox(width: 8),
                   Expanded(
@@ -338,8 +494,8 @@ class _SyncPanelState extends State<SyncPanel> {
                           ],
                         ),
                         child: Image.memory(_qr!,
-                            width: 220,
-                            height: 220,
+                            width: 260,
+                            height: 260,
                             gaplessPlayback: true),
                       ),
                     ),
@@ -628,8 +784,8 @@ class _SyncPanelState extends State<SyncPanel> {
   Widget _qrSteps() {
     const steps = [
       '1 // No CELULAR COM O WHATSAPP, abra Configurações › Aparelhos vinculados',
-      '2 // Toque "Vincular aparelho" e aponte a câmera para o QR abaixo',
-      '3 // Aguarde o LED ficar verde — os contatos carregam sozinhos',
+      '2 // Toque "Vincular aparelho" e aponte a câmera para o QR gigante abaixo',
+      '3 // Aguarde o LED ficar verde — pronto, o PC entrega até com o app fechado',
     ];
     return Container(
       margin: const EdgeInsets.only(bottom: 8),

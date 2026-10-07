@@ -185,9 +185,15 @@ class _DaemonCardState extends State<DaemonCard> {
   String? _status;
   bool _busy = false;
 
-  /// Binário instalado ao lado do app (/opt/chronos/chronos_daemon).
+  /// Binário do daemon: prefere o user-local (~/.local/bin, sem sudo),
+  /// depois o instalado ao lado do app (/opt/chronos/chronos_daemon).
   String _daemonExe() {
     try {
+      final home = Platform.environment['HOME'];
+      if (home != null && home.isNotEmpty) {
+        final f = File('$home/.local/bin/chronos_daemon');
+        if (f.existsSync()) return f.path;
+      }
       final dir = File(Platform.resolvedExecutable).parent;
       final f = File('${dir.path}/chronos_daemon');
       if (f.existsSync()) return f.path;
@@ -235,9 +241,11 @@ class _DaemonCardState extends State<DaemonCard> {
         children: [
           const Text(
               'Com o daemon ATIVO, o PC entrega sozinho com o app '
-              'fechado (service systemd --user, a cada 30s) — inclusive '
-              'agendado no celular: quem agendou tem 2min de prioridade, '
-              'depois o daemon assume. Travou? REINICIAR.',
+              'fechado e após reboot (systemd --user + linger, reinicia '
+              'sozinho pra sempre) — inclusive agendado no celular: quem '
+              'agendou tem 2min de prioridade, depois o daemon assume. '
+              'Só para quando você DESCONECTAR o WhatsApp (pausa tudo) '
+              'ou DESATIVAR aqui. Travou? REINICIAR.',
               style: TextStyle(color: HudColors.dim, fontSize: 11)),
           const SizedBox(height: 8),
           Row(children: [

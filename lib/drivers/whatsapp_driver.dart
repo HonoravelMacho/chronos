@@ -127,9 +127,23 @@ class WhatsAppDriver extends NetworkDriver {
 
   @override
   Future<void> disconnect() async {
+    // Desconexão de verdade: faz logout na Evolution (best-effort) para
+    // derrubar o socket/QR — o daemon entra em espera e NÃO reconecta
+    // sozinho até o usuário sincronizar de novo (flag whatsapp_disabled).
+    try {
+      if (_config.isConfigured) {
+        await _json('DELETE', '/instance/logout/${_config.instance}');
+      }
+    } on DriverException {
+      // Evolution fora do ar ou sem sessão: vale o estado local.
+    }
     _status = DriverStatus(connected: false, state: 'offline',
-        detail: 'desconectado', accountId: _config.instance);
+        detail: 'desconectado pelo usuário', accountId: _config.instance);
   }
+
+  /// Logout explícito (alias de disconnect para a UI deixar claro que
+  /// desvincula o WhatsApp e pausa o daemon).
+  Future<void> logout() => disconnect();
 
   static String toEvolutionNumber(String contactId) {
     var raw = contactId.startsWith('wa:') ? contactId.substring(3) : contactId;

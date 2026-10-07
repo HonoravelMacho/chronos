@@ -87,6 +87,25 @@ Map<String, dynamic>? loadConfig(Directory dir) {
 String toNumber(String contactId) =>
     contactId.startsWith('wa:') ? contactId.substring(3) : contactId;
 
+/// Lê settings.whatsapp_disabled direto do sqlite (sem Flutter).
+/// Qualquer erro = "não pausado" (fail-open: continua entregando).
+bool _dbFlagDisabled(String dbPath) {
+  MiniDb? db;
+  try {
+    db = MiniDb.open(dbPath, loadSqlite());
+    final rows = db.query(
+        "SELECT value FROM settings WHERE key='whatsapp_disabled' LIMIT 1");
+    if (rows.isEmpty) return false;
+    return ((rows.first['value'] as String?) ?? '').trim() == '1';
+  } catch (_) {
+    return false;
+  } finally {
+    try {
+      db?.close();
+    } catch (_) {}
+  }
+}
+
 /// Tabela de mídia PowerZap (extensão -> mediatype/mime).
 String daemonMediaType(String path) {
   final dot = path.toLowerCase().lastIndexOf('.');
@@ -256,6 +275,17 @@ Future<int> runOnce(
   final dbFile = File(p.join(dir.path, 'chronos.db'));
   if (!dbFile.existsSync()) {
     log('sem chronos.db — nada agendado ainda');
+    return 0;
+  }
+  // Desconectado pelo usuário (botão DESCONECTAR no app): daemon em
+  // espera — NÃO entrega, NÃO reconecta, NÃO reinicia sessão. Volta a
+  // entregar sozinho quando o usuário tocar em SINCRONIZAR de novo.
+  // Flag dupla: settings.whatsapp_disabled=1 (novo) ou arquivo
+  // whatsapp.disabled (fallback manual: `touch` para pausar).
+  if (File(p.join(dir.path, 'whatsapp.disabled')).existsSync() ||
+      _dbFlagDisabled(dbFile.path)) {
+    log('WhatsApp desconectado pelo usuário — daemon em espera '
+        '(toque SINCRONIZAR no app para voltar a entregar)');
     return 0;
   }
   // Conexão ilimitada: valida o socket a cada varredura e RECONECTA
@@ -482,14 +512,17 @@ String unitContent(String exe) => '''
 Description=CHRONOS Daemon — entrega agendamentos com o app fechado
 After=network-online.target
 Wants=network-online.target
+# Dura pra sempre: reinicia infinitamente após crash/travamento/reboot
+# (anti-bug), sem limite de tentativas. Só para com --uninstall ou com o
+# WhatsApp DESCONECTADO no app (daemon entra em espera, sem sair).
+StartLimitIntervalSec=0
+StartLimitBurst=0
 
 [Service]
 Type=simple
 ExecStart=$exe --loop
 Restart=always
 RestartSec=10
-# Nunca desiste: reinicia infinitamente após crash/travamento (anti-bug).
-StartLimitIntervalSec=0
 
 [Install]
 WantedBy=default.target
@@ -508,6 +541,14 @@ Future<void> cmdInstall() async {
   if (!exe.endsWith('chronos_daemon')) {
     die('rode o binário instalado (/opt/chronos/chronos_daemon --install)');
   }
+  // Linger: sem isso o systemd --user morre no logout e o daemon NÃO
+  // sobrevive com o app fechado/sessão encerrada. Com linger, roda até
+  // com o PC na tela de login (após o boot, basta 1 login inicial).
+  try {
+    await sh('loginctl', ['enable-linger', Platform.environment['USER'] ?? '']);
+  } catch (_) {
+    // sem loginctl (container/WSL): segue mesmo assim
+  }
   final unitDir = Directory(p.join(
       Platform.environment['HOME']!, '.config', 'systemd', 'user'));
   await unitDir.create(recursive: true);
@@ -517,7 +558,8 @@ Future<void> cmdInstall() async {
   final code = await sh(
       'systemctl', ['--user', 'enable', '--now', 'chronos-daemon']);
   if (code != 0) die('falha ao ativar (code $code)');
-  log('daemon ATIVO — agendamentos entregam com o app fechado');
+  log('daemon ATIVO PRA SEMPRE — entrega com o app fechado e após reboot; '
+      'só para com DESCONECTAR (WhatsApp) ou --uninstall');
 }
 
 Future<void> cmdUninstall() async {

@@ -36,6 +36,52 @@ class AppController extends ChangeNotifier {
   /// Próprio número descoberto na Evolution (ownerJid) — sem digitar.
   String ownNumberAuto = '';
 
+  /// WhatsApp desligado pelo usuário (DESCONECTAR): o app e o daemon
+  /// entram em espera — não entregam nem reconectam sozinhos até o
+  /// usuário tocar em SINCRONIZAR de novo. Persiste em settings.
+  bool whatsappDisabled = false;
+
+  Future<void> loadWhatsappDisabled() async {
+    try {
+      whatsappDisabled =
+          (await db.getSetting('whatsapp_disabled')) == '1';
+    } catch (_) {
+      whatsappDisabled = false;
+    }
+  }
+
+  Future<void> setWhatsappDisabled(bool v) async {
+    whatsappDisabled = v;
+    try {
+      await db.setSetting('whatsapp_disabled', v ? '1' : '0');
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// Desconecta o WhatsApp de verdade (logout na Evolution) e pausa as
+  /// entregas do app + daemon até o usuário sincronizar de novo.
+  Future<void> disconnectWhatsapp() async {
+    final wa = whatsapp;
+    if (wa != null) {
+      try {
+        await wa.disconnect();
+      } catch (_) {}
+    }
+    await setWhatsappDisabled(true);
+  }
+
+  /// Sincroniza (conecta + limpa a pausa). Chamado pelo botão grande de sync.
+  Future<bool> connectWhatsapp() async {
+    await setWhatsappDisabled(false);
+    final wa = whatsapp;
+    if (wa == null) return false;
+    try {
+      return await wa.connect();
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Horários de recomendação (editáveis em CONFIG). Padrão PowerZap:
   /// de hora em hora a partir das 05:00.
   List<String> quickTimes = [];
@@ -128,6 +174,7 @@ class AppController extends ChangeNotifier {
   Future<void> init() async {
     await db.open();
     deviceId = await db.ensureDeviceId();
+    await loadWhatsappDisabled();
     DriverRegistry.instance.register('whatsapp', () => WhatsAppDriver());
     DriverRegistry.instance.register('telegram', () => TelegramDriver());
     drivers.addAll(DriverRegistry.instance.createAll());
@@ -150,6 +197,12 @@ class AppController extends ChangeNotifier {
     // Tick ao vivo: reserva atômica (se o daemon já pegou, pula) e
     // registra o desfecho — nada mais "some": erro fica vermelho.
     scheduler.start((job) async {
+      // Pausado pelo usuário (DESCONECTAR): não entrega nem remarca —
+      // o job continua pendente até sincronizar de novo.
+      if (whatsappDisabled && job.driverName == 'whatsapp') {
+        notifyListeners();
+        return;
+      }
       // Anti-duplicata PC <-> celular: só o aparelho que AGENDOU envia
       // (job.origin = device_id de quem criou). Os outros só espelham no
       // calendário; se o origin não entregar, o daemon do PC assume
@@ -199,6 +252,10 @@ class AppController extends ChangeNotifier {
         }
       }
       await refreshHistory();
+      // Aviso-rápido "já entreguei": espelha o done na hora em vez de
+      // esperar o timer de 15s — fecha a janela onde o outro lado (ou o
+      // daemon após a carência) entregaria junto e duplicava.
+      unawaited(autoSyncAfterLocalChange());
       notifyListeners();
     });
 
@@ -406,6 +463,8 @@ class AppController extends ChangeNotifier {
   Timer? _waKeepAlive;
 
   Future<void> _keepAliveWhatsApp() async {
+    // Desconectado pelo usuário: não reconecta sozinho (só no SINCRONIZAR).
+    if (whatsappDisabled) return;
     final wa = whatsapp;
     if (wa == null) return;
     final before = '${wa.status.state}:${wa.status.connected}';
@@ -513,9 +572,10 @@ class AppController extends ChangeNotifier {
         await syncNow(silent: true);
       } catch (_) {}
     }
-    // Revalida o WhatsApp em background (best-effort).
+    // Revalida o WhatsApp em background (best-effort) — nunca se o
+    // usuário desconectou de propósito.
     final wa = whatsapp;
-    if (wa != null && !wa.status.connected) {
+    if (wa != null && !wa.status.connected && !whatsappDisabled) {
       try {
         await wa.connect();
       } catch (_) {}
