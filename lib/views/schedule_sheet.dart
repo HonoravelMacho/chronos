@@ -19,7 +19,8 @@ Color _hexColor(String hex) {
   return Color(int.tryParse(h, radix: 16) ?? 0xFFFFB000);
 }
 
-Future<void> showScheduleSheet({
+/// Retorna true se salvou (p/ o chamador apagar o antigo na edição).
+Future<bool> showScheduleSheet({
   required BuildContext context,
   required List<Contact> contacts,
   required DateTime initialDay,
@@ -30,17 +31,29 @@ Future<void> showScheduleSheet({
   Map<String, String> tags = const {},
   List<Map<String, String>> quickMessages = const [],
   Future<void> Function()? onSaved,
+  // ── Edição / reagendamento: pré-preenche os campos ──
+  String initialText = '',
+  String initialTag = '',
+  int? initialHour,
+  int? initialMinute,
+  String initialMediaPath = '',
+  String sheetTitle = 'NOVO AGENDAMENTO // TÁTICO',
+  String submitLabel = 'AGENDAR ›',
 }) async {
   Contact? picked = initialContact ??
       (contacts.isNotEmpty ? contacts.first : null);
   final search = TextEditingController();
-  final msg = TextEditingController();
-  final hh = TextEditingController(text: '09');
-  final mm = TextEditingController(text: '00');
-  final tag = TextEditingController();
+  final msg = TextEditingController(text: initialText);
+  final hh = TextEditingController(
+      text: (initialHour ?? 9).toString().padLeft(2, '0'));
+  final mm = TextEditingController(
+      text: (initialMinute ?? 0).toString().padLeft(2, '0'));
+  final tag = TextEditingController(text: initialTag);
   String? error;
-  String mediaPath = '';
-  String mediaName = '';
+  String mediaPath = initialMediaPath;
+  String mediaName = initialMediaPath.isEmpty
+      ? ''
+      : initialMediaPath.split('/').last.split('\\').last;
 
   bool matches(Contact c, String q) {
     if (q.isEmpty) return true;
@@ -49,6 +62,7 @@ Future<void> showScheduleSheet({
         .contains(q);
   }
 
+  var saved = false;
   await showDialog(
     context: context,
     builder: (context) => StatefulBuilder(
@@ -70,7 +84,7 @@ Future<void> showScheduleSheet({
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 480),
             child: HudPanel(
-              title: 'NOVO AGENDAMENTO // TÁTICO',
+              title: sheetTitle,
               accent: HudColors.matrix,
               child: SingleChildScrollView(
                 child: Column(
@@ -537,11 +551,11 @@ Future<void> showScheduleSheet({
                                 filled: false,
                                 onPressed: () =>
                                     Navigator.pop(
-                                        context))),
+                                        context, false))),
                         const SizedBox(width: 8),
                         Expanded(
                           child: NeonButton(
-                            label: 'AGENDAR ›',
+                            label: submitLabel,
                             accent: HudColors.matrix,
                             icon: Icons.send,
                             onPressed: () async {
@@ -625,8 +639,9 @@ Future<void> showScheduleSheet({
                               if (onSaved != null) {
                                 await onSaved();
                               }
+                              saved = true;
                               if (context.mounted) {
-                                Navigator.pop(context);
+                                Navigator.pop(context, true);
                               }
                             },
                           ),
@@ -642,4 +657,5 @@ Future<void> showScheduleSheet({
       },
     ),
   );
+  return saved;
 }

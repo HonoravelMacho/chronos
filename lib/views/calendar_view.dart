@@ -5,9 +5,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/app_controller.dart';
 import '../core/database.dart';
+import '../core/driver_registry.dart';
 import '../core/scheduler.dart';
 import '../ui/hud_panel.dart';
 import '../ui/hud_theme.dart';
@@ -222,6 +224,7 @@ class _CalendarFullscreenViewState extends State<CalendarFullscreenView> {
 
             final detail = _DayDetail(
               day: sel,
+              controller: widget.controller,
               jobs: selJobs,
               history: widget.controller.historyForDay(
                   sel.year, sel.month, sel.day),
@@ -420,6 +423,7 @@ class _DayCell extends StatelessWidget {
 class _DayDetail extends StatelessWidget {
   const _DayDetail({
     required this.day,
+    required this.controller,
     required this.jobs,
     required this.history,
     required this.tagColors,
@@ -428,6 +432,7 @@ class _DayDetail extends StatelessWidget {
   });
 
   final DateTime day;
+  final AppController controller;
   final List<ScheduledJob> jobs;
   final List<StoredSchedule> history;
   final Map<String, String> tagColors;
@@ -465,13 +470,17 @@ class _DayDetail extends StatelessWidget {
                     key: j.id,
                     leftColor: _tagColor(j.tag, tagColors),
                     child: _entryBody(
+                      context,
+                      id: j.id,
                       time: _hhmm(j.dueAtUnix),
+                      dueUnix: j.dueAtUnix,
                       status: 'pending',
                       tag: j.tag,
                       tagColors: tagColors,
                       driver: j.driverName,
                       text: j.text,
                       contact: j.contactId,
+                      mediaPath: j.attachmentPath,
                       error: '',
                       onDelete: () => onDelete(j.id),
                     ),
@@ -490,13 +499,17 @@ class _DayDetail extends StatelessWidget {
                     key: h.id,
                     leftColor: _statusColor(h.status),
                     child: _entryBody(
+                      context,
+                      id: h.id,
                       time: _hhmm(h.dueAtUnix),
+                      dueUnix: h.dueAtUnix,
                       status: h.status,
                       tag: h.tag,
                       tagColors: tagColors,
                       driver: h.driverName,
                       text: h.text,
                       contact: h.contactId,
+                      mediaPath: h.mediaPath,
                       error: h.error,
                       onDelete: () => onDelete(h.id),
                     ),
@@ -532,18 +545,148 @@ class _DayDetail extends StatelessWidget {
     );
   }
 
+  /// Copia o texto da mensagem para a área de transferência.
+  Future<void> _copy(BuildContext context, String text) async {
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Nada para copiar (só anexo)')));
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: text));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Mensagem copiada — cole onde quiser')));
+    }
+  }
+
+  /// Reenvia agora (error/expired -> pendente, dispara em ~1s).
+  Future<void> _retry(BuildContext context, String id) async {
+    try {
+      await controller.retrySchedule(id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Reenviando agora — acompanhe no calendário')));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Não consegui reenviar: $e')));
+      }
+    }
+  }
+
+  /// Reagenda para outro dia/horário via pickers nativos (mesmo id).
+  Future<void> _reschedule(
+      BuildContext context, String id, int dueUnix) async {
+    final initial =
+        DateTime.fromMillisecondsSinceEpoch(dueUnix * 1000);
+    final date = await showDatePicker(
+      context: context,
+      initialDate:
+          initial.isAfter(DateTime.now()) ? initial : DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+      helpText: 'REAGENDAR // ESCOLHA O DIA',
+    );
+    if (date == null || !context.mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+      helpText: 'REAGENDAR // ESCOLHA A HORA',
+    );
+    if (time == null || !context.mounted) return;
+    final due = DateTime(
+        date.year, date.month, date.day, time.hour, time.minute);
+    try {
+      await controller.rescheduleSchedule(id, due);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Reagendado para ${due.day.toString().padLeft(2, '0')}/'
+                '${due.month.toString().padLeft(2, '0')} '
+                '${time.hour.toString().padLeft(2, '0')}:'
+                '${time.minute.toString().padLeft(2, '0')}')));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Não consegui reagendar: $e')));
+      }
+    }
+  }
+
+  /// Editar: abre o sheet pré-preenchido para agendar de novo
+  /// (pendente: apaga o antigo após salvar; histórico: mantém registro).
+  Future<void> _editAsNew(
+    BuildContext context, {
+    required String id,
+    required String status,
+    required String driver,
+    required String contactId,
+    required String text,
+    required String tag,
+    required int dueUnix,
+    required String mediaPath,
+  }) async {
+    final due =
+        DateTime.fromMillisecondsSinceEpoch(dueUnix * 1000);
+    Contact? contact;
+    try {
+      contact = controller.visibleContacts().firstWhere(
+          (c) => c.id == contactId);
+    } catch (_) {
+      contact = controller.selectedContact;
+    }
+    final saved = await showScheduleSheet(
+      context: context,
+      contacts: controller.visibleContacts(),
+      initialDay: due,
+      scheduler: controller.scheduler,
+      db: controller.db,
+      initialContact: contact,
+      quickTimes: controller.quickTimes,
+      tags: controller.tags,
+      quickMessages: controller.quickMessages,
+      initialText: text,
+      initialTag: tag,
+      initialHour: due.hour,
+      initialMinute: due.minute,
+      initialMediaPath: mediaPath,
+      sheetTitle:
+          status == 'pending' ? 'EDITAR // REAGENDAR' : 'AGENDAR DE NOVO // EDITAR',
+      submitLabel: status == 'pending' ? 'SALVAR ›' : 'AGENDAR ›',
+      onSaved: controller.autoSyncAfterLocalChange,
+    );
+    // O sheet criou um NOVO id: pendente antigo vira duplicata — apaga.
+    if (saved && status == 'pending' && context.mounted) {
+      try {
+        await controller.cancelSchedule(id);
+      } catch (_) {}
+    }
+    if (context.mounted) {
+      await controller.refreshHistory();
+    }
+  }
+
   Widget _entryBody(
-      {required String time,
-      required String status,
-      required String tag,
-      required Map<String, String> tagColors,
-      required String driver,
-      required String text,
-      required String contact,
-      required String error,
-      required VoidCallback onDelete}) {
+    BuildContext context, {
+    required String id,
+    required String time,
+    required int dueUnix,
+    required String status,
+    required String tag,
+    required Map<String, String> tagColors,
+    required String driver,
+    required String text,
+    required String contact,
+    required String mediaPath,
+    required String error,
+    required VoidCallback onDelete,
+  }) {
     final sc = _statusColor(status);
     final tc = _tagColor(tag, tagColors);
+    final isPending = status == 'pending' || status == 'sending';
+    final isFailed = status == 'error' || status == 'expired';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -579,24 +722,98 @@ class _DayDetail extends StatelessWidget {
             Text(driver,
                 style: const TextStyle(
                     fontSize: 10, color: HudColors.dim)),
-            IconButton(
+          ],
+        ),
+        const SizedBox(height: 3),
+        Text(text.isEmpty ? '(só anexo)' : text,
+            style: const TextStyle(fontSize: 12)),
+        Text(
+            mediaPath.isNotEmpty ? '$contact :: 📎 anexo' : contact,
+            style:
+                const TextStyle(fontSize: 10, color: HudColors.dim)),
+        if (error.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: HudColors.danger.withValues(alpha: 0.10),
+              border: Border.all(
+                  color: HudColors.danger.withValues(alpha: 0.6)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.warning_amber_rounded,
+                    size: 14, color: HudColors.danger),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text('MOTIVO: $error',
+                      style: const TextStyle(
+                          fontSize: 10, color: HudColors.danger)),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 4,
+          runSpacing: 4,
+          children: [
+            if (isFailed)
+              NeonButton(
+                label: 'REENVIAR',
+                accent: HudColors.matrix,
+                icon: Icons.send,
+                onPressed: () => _retry(context, id),
+              ),
+            NeonButton(
+              label: 'REAGENDAR',
+              accent: HudColors.amber,
+              icon: Icons.schedule,
+              filled: false,
+              onPressed: () => _reschedule(context, id, dueUnix),
+            ),
+            NeonButton(
+              label: 'EDITAR',
+              accent: HudColors.neon,
+              icon: Icons.edit,
+              filled: false,
+              onPressed: () => _editAsNew(context,
+                  id: id,
+                  status: status,
+                  driver: driver,
+                  contactId: contact,
+                  text: text,
+                  tag: tag,
+                  dueUnix: dueUnix,
+                  mediaPath: mediaPath),
+            ),
+            NeonButton(
+              label: 'COPIAR',
+              accent: HudColors.dim,
+              icon: Icons.copy,
+              filled: false,
+              onPressed: () => _copy(context, text),
+            ),
+            if (!isPending)
+              NeonButton(
+                label: 'APAGAR',
+                accent: HudColors.danger,
+                icon: Icons.delete_outline,
+                filled: false,
+                onPressed: onDelete,
+              ),
+          ],
+        ),
+        if (isPending)
+          Align(
+            alignment: Alignment.centerRight,
+            child: IconButton(
               tooltip: 'Apagar',
               icon: const Icon(Icons.delete_outline,
                   size: 16, color: HudColors.danger),
               onPressed: onDelete,
             ),
-          ],
-        ),
-        Text(text, style: const TextStyle(fontSize: 12)),
-        Text(contact,
-            style:
-                const TextStyle(fontSize: 10, color: HudColors.dim)),
-        if (error.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text(error,
-                style: const TextStyle(
-                    fontSize: 10, color: HudColors.danger)),
           ),
       ],
     );

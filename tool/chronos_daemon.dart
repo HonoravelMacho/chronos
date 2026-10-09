@@ -408,13 +408,16 @@ Future<int> runOnce(
         }
         // Catch-up até 24h; além disso vira 'expired' (sem surpresa).
         if (now - dueAt > 24 * 3600) {
-          finish(db, id, 'expired', 'venceu há mais de 24h');
+          finish(db, id, 'expired',
+              'Venceu há mais de 24h sem entregar (app/daemon fechados?) — '
+              'toque REENVIAR no app para enviar agora ou REAGENDAR');
           log('[$id] expirada (>24h) — marcada em vermelho');
           continue;
         }
         if (driver != 'whatsapp') {
           finish(db, id, 'error',
-              'driver "$driver" sem suporte no daemon v1');
+              'Driver "$driver" sem suporte no daemon v1 (só WhatsApp) — '
+              'edite o agendamento no app e troque o alvo');
           log('[$id] driver "$driver" sem suporte — marcada em vermelho');
           continue;
         }
@@ -426,7 +429,9 @@ Future<int> runOnce(
         if (mediaPath.isNotEmpty) {
           final f = File(mediaPath);
           if (!f.existsSync()) {
-            finish(db, id, 'error', 'anexo não encontrado: $mediaPath');
+            finish(db, id, 'error',
+                'Anexo não encontrado ($mediaPath) — o arquivo foi movido ou '
+                'apagado. Edite no app e anexe de novo, ou reenvie sem anexo');
             log('[$id] anexo sumiu — marcada em vermelho');
             continue;
           }
@@ -461,7 +466,8 @@ Future<int> runOnce(
                 .timeout(httpTimeout);
           }
           if (res.statusCode >= 400) {
-            finish(db, id, 'error', 'evolution: HTTP ${res.statusCode}');
+            finish(db, id, 'error',
+                _daemonHttpError(res.statusCode, res.body));
             log('[$id] HTTP ${res.statusCode} — marcada em vermelho');
           } else {
             dynamic j;
@@ -501,6 +507,34 @@ Future<int> runOnce(
   } finally {
     db.close();
   }
+}
+
+/// Erro HTTP da Evolution em PT-BR claro (o que houve + o que fazer).
+String _daemonHttpError(int code, String body) {
+  String detail = '';
+  try {
+    final j = jsonDecode(body);
+    if (j is Map && j['message'] is String) detail = j['message'] as String;
+  } catch (_) {}
+  final suffix = detail.isNotEmpty ? ' — a Evolution disse: "$detail"' : '';
+  if (code == 401 || code == 403) {
+    return 'Chave da Evolution recusada (HTTP $code) — confira a API KEY '
+        'no painel SYNC do app e toque REENVIAR$suffix';
+  }
+  if (code == 404) {
+    return 'Instância não encontrada na Evolution (HTTP 404) — toque '
+        'SINCRONIZAR/CONECTAR no SYNC e REENVIAR$suffix';
+  }
+  if (code == 400) {
+    return 'A Evolution recusou o envio (HTTP 400) — confira o número do '
+        'contato e toque REENVIAR$suffix';
+  }
+  if (code >= 500) {
+    return 'A Evolution falhou (HTTP $code) — aguarde 1 min, reconecte no '
+        'SYNC e toque REENVIAR$suffix';
+  }
+  return 'Falha ao enviar (HTTP $code) — toque REENVIAR. Se repetir, '
+      'reconete no SYNC$suffix';
 }
 
 /// Baixa terminal: status + done=1 (visível no calendário).

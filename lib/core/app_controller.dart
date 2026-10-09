@@ -13,6 +13,7 @@ import 'connect_qr.dart';
 import 'driver_registry.dart';
 import 'evolution_config.dart';
 import 'scheduler.dart';
+import 'send_errors.dart';
 import 'sync_client.dart';
 import 'sync_server.dart';
 import '../drivers/telegram_driver.dart';
@@ -221,19 +222,29 @@ class AppController extends ChangeNotifier {
         notifyListeners();
         return;
       }
+      NetworkDriver? target;
       for (final d in drivers) {
-        if (d.name == job.driverName) {
-          // PowerZap: sem socket aberto, mantém PENDENTE (requeue) em vez
-          // de queimar para erro — entrega quando reconectar.
-          if (d is WhatsAppDriver && !await d.ensureOnlineCached()) {
-            scheduler.schedule(job);
-            await db.saveSchedule(StoredSchedule(
-                id: job.id, driverName: job.driverName,
-                contactId: job.contactId, text: job.text, tag: job.tag,
-                dueAtUnix: job.dueAtUnix,
-                mediaPath: job.attachmentPath, origin: job.origin));
-            break;
-          }
+        if (d.name == job.driverName) target = d;
+      }
+      if (target == null) {
+        // Driver sumiu (ex.: telegram desregistrado): erro claro, não some.
+        await db.finishSchedule(job.id, 'error',
+            error: friendlySendError(
+                DriverException(
+                    'driver "${job.driverName}" não instalado neste aparelho'),
+                driverName: job.driverName));
+      } else {
+        final d = target;
+        // PowerZap: sem socket aberto, mantém PENDENTE (requeue) em vez
+        // de queimar para erro — entrega quando reconectar.
+        if (d is WhatsAppDriver && !await d.ensureOnlineCached()) {
+          scheduler.schedule(job);
+          await db.saveSchedule(StoredSchedule(
+              id: job.id, driverName: job.driverName,
+              contactId: job.contactId, text: job.text, tag: job.tag,
+              dueAtUnix: job.dueAtUnix,
+              mediaPath: job.attachmentPath, origin: job.origin));
+        } else {
           try {
             final req = MessageRequest(
                 contactId: job.contactId, text: job.text, tag: job.tag,
@@ -246,9 +257,14 @@ class AppController extends ChangeNotifier {
                 contact: job.contactId, body: job.text,
                 sentAt: Scheduler.nowUnix(), tag: job.tag);
           } on DriverException catch (e) {
-            await db.finishSchedule(job.id, 'error', error: e.message);
+            // Mensagem clara: o que houve + o que fazer (reenviável).
+            await db.finishSchedule(job.id, 'error',
+                error: friendlySendError(e, driverName: job.driverName));
+          } catch (e) {
+            // Qualquer outro erro (IO, parse, bug): nunca some em silêncio.
+            await db.finishSchedule(job.id, 'error',
+                error: friendlySendError(e, driverName: job.driverName));
           }
-          break;
         }
       }
       await refreshHistory();
@@ -279,9 +295,7 @@ class AppController extends ChangeNotifier {
           continue;
         }
         await db.finishSchedule(s.id, 'expired',
-            error: mine
-                ? 'venceu com o app/daemon fechados'
-                : 'origem fora do ar e venceu há +24h');
+            error: friendlyExpiredError(mine: mine, appWasClosed: true));
         continue;
       }
       scheduler.schedule(ScheduledJob(
@@ -425,6 +439,53 @@ class AppController extends ChangeNotifier {
   Future<void> cancelSchedule(String id) async {
     scheduler.cancel(id);
     await db.deleteSchedule(id);
+    await refreshHistory();
+    notifyListeners();
+    unawaited(autoSyncAfterLocalChange());
+  }
+
+  /// Reenvia AGORA um agendamento com falha (error/expired): volta para a
+  /// fila como pendente e dispara no próximo tick (~1s). Retorna o id.
+  Future<String> retrySchedule(String id) async {
+    final all = await db.listSchedules(includeDone: true);
+    final s = all.firstWhere((e) => e.id == id,
+        orElse: () => throw Exception('Agendamento não encontrado ($id)'));
+    final origin = s.origin.isNotEmpty ? s.origin : deviceId;
+    final now = Scheduler.nowUnix();
+    final fresh = StoredSchedule(
+        id: s.id, driverName: s.driverName, contactId: s.contactId,
+        text: s.text, tag: s.tag, dueAtUnix: now,
+        mediaPath: s.mediaPath, origin: origin);
+    await db.saveSchedule(fresh);
+    scheduler.schedule(ScheduledJob(
+        id: s.id, driverName: s.driverName, contactId: s.contactId,
+        text: s.text, tag: s.tag, dueAtUnix: now,
+        attachmentPath: s.mediaPath, origin: origin));
+    await refreshHistory();
+    notifyListeners();
+    unawaited(autoSyncAfterLocalChange());
+    return s.id;
+  }
+
+  /// Reagenda para outro horário (mesmo id, volta a pendente).
+  /// [due] precisa estar no futuro — erro legível caso contrário.
+  Future<void> rescheduleSchedule(String id, DateTime due) async {
+    if (!due.isAfter(DateTime.now())) {
+      throw Exception('Escolha um horário no futuro para reagendar');
+    }
+    final all = await db.listSchedules(includeDone: true);
+    final s = all.firstWhere((e) => e.id == id,
+        orElse: () => throw Exception('Agendamento não encontrado ($id)'));
+    final origin = s.origin.isNotEmpty ? s.origin : deviceId;
+    final dueUnix = due.millisecondsSinceEpoch ~/ 1000;
+    await db.saveSchedule(StoredSchedule(
+        id: s.id, driverName: s.driverName, contactId: s.contactId,
+        text: s.text, tag: s.tag, dueAtUnix: dueUnix,
+        mediaPath: s.mediaPath, origin: origin));
+    scheduler.schedule(ScheduledJob(
+        id: s.id, driverName: s.driverName, contactId: s.contactId,
+        text: s.text, tag: s.tag, dueAtUnix: dueUnix,
+        attachmentPath: s.mediaPath, origin: origin));
     await refreshHistory();
     notifyListeners();
     unawaited(autoSyncAfterLocalChange());
