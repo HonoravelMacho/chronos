@@ -587,12 +587,16 @@ class _DayDetail extends StatelessWidget {
       firstDate: DateTime.now().subtract(const Duration(days: 1)),
       lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
       helpText: 'REAGENDAR // ESCOLHA O DIA',
+      builder: (c, child) =>
+          Theme(data: HudColors.pickerTheme(c), child: child!),
     );
     if (date == null || !context.mounted) return;
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(initial),
       helpText: 'REAGENDAR // ESCOLHA A HORA',
+      builder: (c, child) =>
+          Theme(data: HudColors.pickerTheme(c), child: child!),
     );
     if (time == null || !context.mounted) return;
     final due = DateTime(

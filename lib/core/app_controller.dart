@@ -235,36 +235,52 @@ class AppController extends ChangeNotifier {
                 driverName: job.driverName));
       } else {
         final d = target;
-        // PowerZap: sem socket aberto, mantém PENDENTE (requeue) em vez
-        // de queimar para erro — entrega quando reconectar.
-        if (d is WhatsAppDriver && !await d.ensureOnlineCached()) {
-          scheduler.schedule(job);
-          await db.saveSchedule(StoredSchedule(
-              id: job.id, driverName: job.driverName,
-              contactId: job.contactId, text: job.text, tag: job.tag,
-              dueAtUnix: job.dueAtUnix,
-              mediaPath: job.attachmentPath, origin: job.origin));
-        } else {
-          try {
-            final req = MessageRequest(
-                contactId: job.contactId, text: job.text, tag: job.tag,
-                attachmentPath: job.attachmentPath);
-            final id = job.attachmentPath.isNotEmpty
-                ? await d.sendMedia(req)
-                : await d.sendMessage(req);
-            await db.finishSchedule(job.id, 'sent');
-            await db.saveMessage(id: id, driver: job.driverName,
-                contact: job.contactId, body: job.text,
-                sentAt: Scheduler.nowUnix(), tag: job.tag);
-          } on DriverException catch (e) {
-            // Mensagem clara: o que houve + o que fazer (reenviável).
-            await db.finishSchedule(job.id, 'error',
-                error: friendlySendError(e, driverName: job.driverName));
-          } catch (e) {
-            // Qualquer outro erro (IO, parse, bug): nunca some em silêncio.
-            await db.finishSchedule(job.id, 'error',
-                error: friendlySendError(e, driverName: job.driverName));
+        // WhatsApp: duas travas antes de enviar —
+        // 1. sessão recém-aberta (<60s): a Evolution aceita o POST (200)
+        //    mas a mensagem fica PENDING para sempre (ainda sincronizando).
+        //    Segura na fila em vez de marcar ENVIADA à toa.
+        // 2. prova real (verifyDeep): socket fantasma (open que não envia,
+        //    428) mantém PENDENTE em vez de queimar para erro.
+        // O requeue atrasa a fila em memória (20-30s, sem POST-storm);
+        // no banco o due original é preservado.
+        if (d is WhatsAppDriver) {
+          if (d.freshlyOnline()) {
+            // Sessão abriu há <60s: segura na fila (limbo PENDING).
+            await _holdPending(job, 20);
+            return;
           }
+          final digits = ownNumberAuto.isNotEmpty
+              ? ownNumberAuto
+              : d.config.ownerDigits;
+          final proof = await d.verifyDeep(
+              number: digits.isEmpty ? null : digits);
+          if (!proof.ok) {
+            // Fantasma: mantém PENDENTE (requeue) em vez de queimar erro.
+            await _holdPending(job, 30);
+            await refreshHistory();
+            notifyListeners();
+            return;
+          }
+        }
+        try {
+          final req = MessageRequest(
+              contactId: job.contactId, text: job.text, tag: job.tag,
+              attachmentPath: job.attachmentPath);
+          final id = job.attachmentPath.isNotEmpty
+              ? await d.sendMedia(req)
+              : await d.sendMessage(req);
+          await db.finishSchedule(job.id, 'sent');
+          await db.saveMessage(id: id, driver: job.driverName,
+              contact: job.contactId, body: job.text,
+              sentAt: Scheduler.nowUnix(), tag: job.tag);
+        } on DriverException catch (e) {
+          // Mensagem clara: o que houve + o que fazer (reenviável).
+          await db.finishSchedule(job.id, 'error',
+              error: friendlySendError(e, driverName: job.driverName));
+        } catch (e) {
+          // Qualquer outro erro (IO, parse, bug): nunca some em silêncio.
+          await db.finishSchedule(job.id, 'error',
+              error: friendlySendError(e, driverName: job.driverName));
         }
       }
       await refreshHistory();
@@ -444,6 +460,21 @@ class AppController extends ChangeNotifier {
     unawaited(autoSyncAfterLocalChange());
   }
 
+  /// Segura o job na fila (PENDENTE): a fila em memória atrasa alguns
+  /// segundos (sem storm de checagem a cada 1s); no banco o due original
+  /// e o status pendente são preservados (desfaz o claim atômico).
+  Future<void> _holdPending(ScheduledJob job, int delaySec) async {
+    final due = Scheduler.nowUnix() + delaySec;
+    scheduler.schedule(ScheduledJob(
+        id: job.id, driverName: job.driverName, contactId: job.contactId,
+        text: job.text, tag: job.tag, dueAtUnix: due,
+        attachmentPath: job.attachmentPath, origin: job.origin));
+    await db.saveSchedule(StoredSchedule(
+        id: job.id, driverName: job.driverName, contactId: job.contactId,
+        text: job.text, tag: job.tag, dueAtUnix: job.dueAtUnix,
+        mediaPath: job.attachmentPath, origin: job.origin));
+  }
+
   /// Reenvia AGORA um agendamento com falha (error/expired): volta para a
   /// fila como pendente e dispara no próximo tick (~1s). Retorna o id.
   Future<String> retrySchedule(String id) async {
@@ -621,6 +652,40 @@ class AppController extends ChangeNotifier {
           }
         });
       }
+    }
+  }
+
+  /// Resultado da última verificação profunda do WhatsApp
+  /// (botão VERIFICAR AGORA): texto honesto p/ o card do dashboard.
+  String whatsappCheckNote = '';
+
+  /// Repinta a UI quando o driver mudou de estado fora de um tick
+  /// (notifyListeners é protegido: só via este método público).
+  void touch() => notifyListeners();
+
+  /// Verificação profunda sob demanda (botão VERIFICAR AGORA):
+  /// connectionState + operação real na rede. Atualiza o card na hora.
+  Future<bool> verifyWhatsappDeep() async {
+    final wa = whatsapp;
+    if (wa == null) {
+      whatsappCheckNote = 'Driver WhatsApp não registrado.';
+      notifyListeners();
+      return false;
+    }
+    final digits = ownNumberAuto.isNotEmpty
+        ? ownNumberAuto
+        : wa.config.ownerDigits;
+    try {
+      final r = await wa.verifyDeep(
+          number: digits.isEmpty ? null : digits);
+      whatsappCheckNote = r.detail;
+      notifyListeners();
+      await refreshContacts();
+      return r.ok;
+    } catch (e) {
+      whatsappCheckNote = 'Verificação falhou: $e';
+      notifyListeners();
+      return false;
     }
   }
 

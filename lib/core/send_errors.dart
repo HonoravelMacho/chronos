@@ -47,8 +47,14 @@ String friendlySendError(Object e, {String driverName = 'whatsapp'}) {
     return 'Conflito na Evolution (HTTP 409): $raw — '
         'toque RECONECTAR no SYNC e REENVIAR.';
   }
-  if (hasAny(['500', '502', '503', 'internal error', 'bad gateway',
-      'service unavailable'])) {
+  // 500 = o famoso "socket fantasma": a Evolution diz conectada mas a
+  // sessão do WhatsApp morreu. A auto-cura já tentou 1x sozinha.
+  if (hasAny(['500', 'internal error'])) {
+    return 'Sessão do WhatsApp instável (erro 500: diz conectada mas não '
+        'envia) — no DASHBOARD toque RECONECTAR ou escaneie o QR WHATSAPP '
+        'de novo, depois toque REENVIAR.';
+  }
+  if (hasAny(['502', '503', 'bad gateway', 'service unavailable'])) {
     return 'A Evolution falhou (erro ${raw.trim()}) — aguarde 1 min, '
         'toque RECONECTAR no SYNC e REENVIAR.';
   }

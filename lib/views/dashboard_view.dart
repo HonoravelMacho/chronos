@@ -13,6 +13,7 @@ import '../ui/neon_button.dart';
 import 'sync_panel.dart';
 import 'cloud_sync_view.dart';
 import 'pairing_view.dart';
+import 'whatsapp_card.dart';
 
 class DashboardView extends StatelessWidget {
   const DashboardView({super.key, required this.controller});
@@ -48,6 +49,8 @@ class DashboardView extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 10),
+              WhatsappCard(controller: controller),
               const SizedBox(height: 10),
               PairingCard(controller: controller),
               const SizedBox(height: 10),

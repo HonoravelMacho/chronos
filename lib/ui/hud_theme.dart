@@ -38,6 +38,41 @@ class HudColors {
     }
   }
 
+  /// Tema escuro Chronos para os pickers nativos (relógio/calendário):
+  /// fundo abyss, destaque neon, dígitos matrix. Use via `builder:` do
+  /// showDatePicker/showTimePicker para o relógio usar o tema top.
+  static ThemeData pickerTheme(BuildContext context) {
+    final base = Theme.of(context);
+    return base.copyWith(
+      colorScheme: const ColorScheme.dark(
+        primary: neon,
+        onPrimary: abyss,
+        surface: panel,
+        onSurface: text,
+        secondary: matrix,
+        onSecondary: abyss,
+      ),
+      dialogTheme: const DialogThemeData(
+        backgroundColor: bg,
+        shape: RoundedRectangleBorder(
+            side: BorderSide(color: edge),
+            borderRadius: BorderRadius.zero),
+      ),
+      timePickerTheme: const TimePickerThemeData(
+        backgroundColor: bg,
+        hourMinuteColor: panelSoft,
+        hourMinuteTextColor: matrix,
+        dialHandColor: neon,
+        dialBackgroundColor: panel,
+        dialTextColor: text,
+        entryModeIconColor: neon,
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: neon),
+      ),
+    );
+  }
+
   static Color forState(String state) {
     switch (state) {
       case 'online':

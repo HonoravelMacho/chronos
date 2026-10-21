@@ -77,16 +77,16 @@ class _PairingCardState extends State<PairingCard> {
         final c = widget.controller;
         final isHost = c.cloudMode == 'host';
         return HudPanel(
-          title: 'PAREAMENTO RÁPIDO // 1 QR',
+          title: 'PAREAMENTO CELULAR ↔ PC // NUVEM',
           accent: HudColors.neon,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'No PC: ATIVE A NUVEM e mostre o QR. No Android: escaneie — '
-                'o app configura sozinho o IP da nuvem + o WhatsApp '
-                '(mesma sessão do PC, sem 2º QR).',
+                '⚠ Este QR NÃO é do WhatsApp: ele liga o app do celular '
+                'ao PC (nuvem privada). O QR do WhatsApp fica no card '
+                'WHATSAPP // SEU NÚMERO acima.',
                 style: TextStyle(color: HudColors.dim, fontSize: 11),
               ),
               const SizedBox(height: 10),
@@ -120,8 +120,9 @@ class _PairingCardState extends State<PairingCard> {
               if (!isHost) ...[
                 const SizedBox(height: 6),
                 const Text(
-                  'Dica: este botão também serve no PC para testar. '
-                  'O QR do PC fica em NUVEM PRIVADA quando o modo é PC = HOST.',
+                  'Dica: ESCANEAR QR DO PC lê o QR da nuvem (celular ↔ PC). '
+                  'Para vincular o WhatsApp, use o botão QR WHATSAPP no '
+                  'card acima — com a câmera do próprio WhatsApp.',
                   style: TextStyle(color: HudColors.dim, fontSize: 10),
                 ),
               ],

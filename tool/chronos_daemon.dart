@@ -42,6 +42,12 @@ int _lastRestartAt = 0;
 /// Ids já logados aguardando a origem (evita spam no loop).
 final Set<String> _awaitingOrigin = {};
 
+/// Quando o socket ABRIU (transição): envios nos primeiros 60s caem no
+/// limbo PENDING (sessão ainda sincronizando — a Evolution devolve 200
+/// com id mas nunca entrega). Segura a fila nessa janela.
+int _onlineSinceTs = 0;
+String _lastDaemonState = '';
+
 void log(String msg) {
   final t = DateTime.now().toIso8601String().substring(11, 19);
   stdout.writeln('[$t] $msg');
@@ -308,9 +314,19 @@ Future<int> runOnce(
       st = await _state(baseUrl, apiKey, instance);
     }
   }
+  final now0 = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  if (st == 'open' && _lastDaemonState != 'open') {
+    _onlineSinceTs = now0;
+  }
+  _lastDaemonState = st;
   if (st != 'open') {
     log('instância "$instance" em "$st" — aguardando conexão, '
         'pendentes mantidos (nova tentativa no próximo ciclo)');
+    return 0;
+  }
+  if (_onlineSinceTs > 0 && now0 - _onlineSinceTs < 60) {
+    log('sessão abriu há ${now0 - _onlineSinceTs}s — aguardando o sync '
+        '(60s) antes de enviar; pendentes mantidos, nada marcado');
     return 0;
   }
   final db = MiniDb.open(dbFile.path, loadSqlite());
@@ -440,19 +456,19 @@ Future<int> runOnce(
           payload = _mediaPayload(number, body, mediaPath);
         }
         try {
-          http.Response res;
-          if (payload != null) {
-            res = await client
-                .post(Uri.parse('$baseUrl/message/sendMedia/$instance'),
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Accept': 'application/json',
-                      'apikey': apiKey,
-                    },
-                    body: jsonEncode(payload))
-                .timeout(httpTimeout);
-          } else {
-            res = await client
+          Future<http.Response> postOnce() {
+            if (payload != null) {
+              return client
+                  .post(Uri.parse('$baseUrl/message/sendMedia/$instance'),
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'apikey': apiKey,
+                      },
+                      body: jsonEncode(payload))
+                  .timeout(httpTimeout);
+            }
+            return client
                 .post(Uri.parse('$baseUrl/message/sendText/$instance'),
                     headers: {
                       'Content-Type': 'application/json',
@@ -464,6 +480,30 @@ Future<int> runOnce(
                       'text': body,
                     }))
                 .timeout(httpTimeout);
+          }
+
+          var res = await postOnce();
+          // Socket fantasma (open que não envia: 500/428): 1 auto-cura
+          // (restart + repeteco) antes de queimar para erro. Timeout NÃO
+          // repete (upload longo: dobraria a espera e furaria os 20min
+          // anti-duplicata). Throttle de 10min anti-tempestade.
+          if ((res.statusCode == 500 || res.statusCode == 428) &&
+              _recoverThrottle()) {
+            log('[$id] HTTP ${res.statusCode} (socket fantasma?) — '
+                'reiniciando sessão e repetindo 1x...');
+            await _restartSession(baseUrl, apiKey, instance);
+            await Future<void>.delayed(const Duration(seconds: 5));
+            try {
+              res = await postOnce();
+            } catch (e) {
+              // Rede caiu no repeteco: devolve à fila (próximo ciclo).
+              db.execute(
+                  "UPDATE schedules SET status = 'pending' "
+                  "WHERE id = ? AND status = 'sending'",
+                  [id]);
+              log('[$id] falha de rede no repeteco ($e) — próximo ciclo');
+              continue;
+            }
           }
           if (res.statusCode >= 400) {
             finish(db, id, 'error',
@@ -509,6 +549,14 @@ Future<int> runOnce(
   }
 }
 
+/// Throttle da auto-cura (10min): true 1x, depois só após a janela.
+bool _recoverThrottle() {
+  final nowS = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  if (_lastRestartAt != 0 && nowS - _lastRestartAt < 600) return false;
+  _lastRestartAt = nowS;
+  return true;
+}
+
 /// Erro HTTP da Evolution em PT-BR claro (o que houve + o que fazer).
 String _daemonHttpError(int code, String body) {
   String detail = '';
@@ -517,6 +565,16 @@ String _daemonHttpError(int code, String body) {
     if (j is Map && j['message'] is String) detail = j['message'] as String;
   } catch (_) {}
   final suffix = detail.isNotEmpty ? ' — a Evolution disse: "$detail"' : '';
+  if (code == 500) {
+    return 'Sessão do WhatsApp instável (erro 500: diz conectada mas não '
+        'envia — a auto-cura já tentou 1x). No app: DASHBOARD › RECONECTAR '
+        'ou QR WHATSAPP novo, depois REENVIAR$suffix';
+  }
+  if (code == 428) {
+    return 'WhatsApp com conexão fechada (428 Connection Closed — socket '
+        'fantasma). No app: DASHBOARD › QR WHATSAPP e escaneie de novo, '
+        'depois REENVIAR$suffix';
+  }
   if (code == 401 || code == 403) {
     return 'Chave da Evolution recusada (HTTP $code) — confira a API KEY '
         'no painel SYNC do app e toque REENVIAR$suffix';

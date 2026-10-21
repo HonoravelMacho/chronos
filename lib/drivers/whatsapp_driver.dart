@@ -14,6 +14,18 @@ import 'package:http/http.dart' as http;
 
 import '../core/driver_registry.dart';
 import '../core/evolution_config.dart';
+import '../core/send_errors.dart';
+
+/// Resultado da verificação profunda (a única que confia de verdade):
+/// connectionState=open + operação real na rede do WhatsApp.
+class DeepCheck {
+  DeepCheck(
+      {required this.ok, required this.detail, required this.checkedAt});
+
+  final bool ok;
+  final String detail;
+  final DateTime checkedAt;
+}
 
 class WhatsAppDriver extends NetworkDriver {
   WhatsAppDriver({EvolutionConfig? config, http.Client? client})
@@ -49,7 +61,10 @@ class WhatsAppDriver extends NetworkDriver {
         if (_config.apiKey.isNotEmpty) 'apikey': _config.apiKey,
       };
 
-  /// GET/POST JSON; lança DriverException em transporte ou HTTP >= 400.
+  /// GET/POST/PUT/DELETE JSON; lança DriverException em transporte ou
+  /// HTTP >= 400. O método é respeitado de verdade: a Evolution devolve
+  /// 404 para POST em rota DELETE (foi assim que o logout quebrou e a
+  /// sessão fantasma nunca morria).
   /// [timeout] longo p/ anexos grandes (PDF sem limite: pode levar minutos;
   /// nunca aborta por tamanho, só por falha real de rede/servidor).
   Future<Map<String, dynamic>> _json(String method, String path,
@@ -58,13 +73,25 @@ class WhatsAppDriver extends NetworkDriver {
     http.Response res;
     final uri = Uri.parse('$_base$path');
     try {
-      if (method == 'GET') {
-        res = await _client.get(uri, headers: _headers)
-            .timeout(timeout);
-      } else {
-        res = await _client.post(uri, headers: _headers,
-            body: jsonEncode(body ?? {}))
-            .timeout(timeout);
+      switch (method) {
+        case 'GET':
+          res = await _client.get(uri, headers: _headers)
+              .timeout(timeout);
+          break;
+        case 'PUT':
+          res = await _client.put(uri, headers: _headers,
+              body: jsonEncode(body ?? {}))
+              .timeout(timeout);
+          break;
+        case 'DELETE':
+          // Sem corpo: algumas rotas (logout/delete) rejeitam DELETE com body.
+          res = await _client.delete(uri, headers: _headers)
+              .timeout(timeout);
+          break;
+        default:
+          res = await _client.post(uri, headers: _headers,
+              body: jsonEncode(body ?? {}))
+              .timeout(timeout);
       }
     } on SocketException catch (e) {
       throw DriverException(
@@ -107,8 +134,7 @@ class WhatsAppDriver extends NetworkDriver {
       final j = await _json('GET', '/instance/connectionState/${_config.instance}');
       final state = ((j['instance'] as Map?)?['state'] as String?) ?? 'unknown';
       if (state == 'open') {
-        _status = DriverStatus(connected: true, state: 'online',
-            detail: 'evolution: conectado', accountId: _config.instance);
+        _setOnline('evolution: conectado');
       } else if (state == 'connecting') {
         _status = DriverStatus(connected: false, state: 'connecting',
             detail: 'evolution: pareando (escaneie o QR)',
@@ -145,6 +171,33 @@ class WhatsAppDriver extends NetworkDriver {
   /// desvincula o WhatsApp e pausa o daemon).
   Future<void> logout() => disconnect();
 
+  /// Derruba a sessão travada NO SERVIDOR (stale-open: diz "open" mas não
+  /// gera QR nem envia — o /connect volta só {"instance":...} sem QR).
+  /// Depois do logout, o /connect volta a gerar QR de verdade.
+  /// CUIDADO: desconecta mesmo sessão boa — chamar só em falha
+  /// confirmada (sem QR / erro) ou com confirmação do usuário.
+  Future<void> forceLogout() async {
+    await _json('DELETE', '/instance/logout/${_config.instance}');
+    _markOffline('sessão derrubada no servidor — escaneie o QR NOVO '
+        'com o seu WhatsApp');
+  }
+
+  /// Apaga e recria a instância do zero (último recurso, provado em
+  /// campo): quando nem o logout salva — socket diz open mas a cripto
+  /// morreu (428 em tudo) — só instância nova gera QR válido.
+  /// SEMPRE exige escanear o QR de novo depois.
+  Future<void> recreateInstance() async {
+    try {
+      await _json('DELETE', '/instance/delete/${_config.instance}');
+    } on DriverException {
+      // Já não existia: segue para criar do zero mesmo assim.
+    }
+    await Future<void>.delayed(const Duration(seconds: 2));
+    await _ensureInstance();
+    await Future<void>.delayed(const Duration(seconds: 2));
+    await connect();
+  }
+
   static String toEvolutionNumber(String contactId) {
     var raw = contactId.startsWith('wa:') ? contactId.substring(3) : contactId;
     raw = raw.trim();
@@ -156,7 +209,10 @@ class WhatsAppDriver extends NetworkDriver {
 
   /// Instância está com socket aberto? (PowerZap: só envia se open;
   /// se não, mantém pendente em vez de queimar para erro.)
+  /// ATENÇÃO: open aqui NÃO prova envio (socket fantasma existe) —
+  /// a prova real é verifyDeep() ou o próprio envio com recuperação.
   Future<bool> isConnected() async {
+    _lastCheckAt = DateTime.now();
     try {
       final j = await _json('GET', '/instance/connectionState/${_config.instance}');
       final info = j['instance'] ?? j;
@@ -169,6 +225,13 @@ class WhatsAppDriver extends NetworkDriver {
   DateTime? _lastConnCheck;
   bool _lastConnOk = false;
 
+  /// Quando o socket foi verificado de verdade pela última vez
+  /// (qualquer connectionState, envio ou verificação profunda).
+  /// A UI mostra "verificado às HH:MM:SS" — honestidade brutal:
+  /// sem timestamp, nenhum "conectado" vale.
+  DateTime? _lastCheckAt;
+  DateTime? get lastCheckAt => _lastCheckAt;
+
   /// Versão com cache de 30s (o tick do scheduler chama a cada segundo).
   Future<bool> ensureOnlineCached() async {
     final now = DateTime.now();
@@ -179,6 +242,148 @@ class WhatsAppDriver extends NetworkDriver {
     _lastConnOk = await isConnected();
     _lastConnCheck = now;
     return _lastConnOk;
+  }
+
+  /// Quando o socket ABRIU de verdade (transição offline -> online).
+  /// Envios nos primeiros 60s caem no limbo: a Evolution devolve 200 com
+  /// id, mas a mensagem fica PENDING para sempre (sessão ainda
+  /// sincronizando). `freshlyOnline` segura esses envios na fila.
+  DateTime? _onlineSince;
+  DateTime? get onlineSince => _onlineSince;
+
+  bool freshlyOnline({int graceSec = 60}) {
+    if (_onlineSince == null) return false;
+    return DateTime.now().difference(_onlineSince!) <
+        Duration(seconds: graceSec);
+  }
+
+  void _setOnline(String detail) {
+    if (!_status.connected) _onlineSince = DateTime.now();
+    _status = DriverStatus(connected: true, state: 'online',
+        detail: detail, accountId: _config.instance);
+    _lastConnOk = true;
+    _lastConnCheck = DateTime.now();
+    _lastCheckAt = DateTime.now();
+  }
+
+  /// Derruba o "conectado" na hora: socket morto vira erro visível
+  /// imediatamente (nunca mantém o verde após falha real). Também
+  /// invalida o cache de 30s — a próxima checagem é real, não chute.
+  void _markOffline(String detail) {
+    _status = DriverStatus(connected: false, state: 'error',
+        detail: detail, accountId: _config.instance);
+    _lastConnOk = false;
+    _lastConnCheck = null;
+    _lastCheckAt = DateTime.now();
+  }
+
+  /// Sinal de socket morto (não de payload ruim): 500/428, "connection
+  /// closed", rede inacessível, timeout. 400/404 de payload NÃO entram
+  /// aqui — esses não derrubam o status.
+  static bool _isOfflineSignal(DriverException e) {
+    final m = e.message.toLowerCase();
+    return m.contains('500') ||
+        m.contains('428') ||
+        m.contains('connection closed') ||
+        m.contains('precondition required') ||
+        m.contains('inacessível') ||
+        m.contains('socketexception') ||
+        m.contains('tempo esgotado') ||
+        m.contains('timeout');
+  }
+
+  DateTime? _lastRecoverAt;
+
+  /// Auto-cura (1x): sessão fantasma (open que não envia) tenta
+  /// ressuscitar com restart + 1 repeteco antes de desistir.
+  /// Throttle de 5min para nunca virar tempestade de restart.
+  /// Retorna true se tentou recuperar (vale repetir o envio 1x).
+  Future<bool> _recoverOnce() async {
+    final now = DateTime.now();
+    if (_lastRecoverAt != null &&
+        now.difference(_lastRecoverAt!) < const Duration(minutes: 5)) {
+      return false;
+    }
+    _lastRecoverAt = now;
+    try {
+      await restartInstance();
+    } on DriverException {
+      // Evolution fora do ar: o repeteco abaixo vai confirmar
+    }
+    await Future<void>.delayed(const Duration(seconds: 4));
+    return true;
+  }
+
+  String _offlineDetail(DriverException e) =>
+      friendlySendError(e, driverName: name);
+
+  /// Verificação profunda: connectionState=open E operação real na rede
+  /// do WhatsApp (whatsappNumbers). É a única que detecta o "socket
+  /// fantasma" — open que não envia (500/428).
+  Future<DeepCheck> verifyDeep({String? number}) async {
+    _lastCheckAt = DateTime.now();
+    final open = await isConnected();
+    _lastConnCheck = DateTime.now();
+    _lastConnOk = open;
+    if (!open) {
+      await connect(); // atualiza o status com o diagnóstico real
+      return DeepCheck(
+          ok: false,
+          detail: 'Socket FECHADO (${status.detail}). Toque QR WHATSAPP '
+              'e escaneie com o seu WhatsApp.',
+          checkedAt: _lastCheckAt!);
+    }
+    final digits = (number ?? '').replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) {
+      return DeepCheck(
+          ok: true,
+          detail: 'connectionState=open — verificação SUPERFICIAL '
+              '(cadastre MEU NÚMERO no SYNC para a prova real de envio).',
+          checkedAt: _lastCheckAt!);
+    }
+    try {
+      final res = await _client
+          .post(
+              Uri.parse(
+                  '$_base/chat/whatsappNumbers/${_config.instance}'),
+              headers: _headers,
+              body: jsonEncode({
+                'numbers': [digits]
+              }))
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200) {
+        _setOnline('evolution: conectado (prova real às ${_hhmmss()})');
+        return DeepCheck(
+            ok: true,
+            detail: 'PROVA REAL: a rede do WhatsApp respondeu '
+                '(verificado às ${_hhmmss()}). Pode agendar tranquilo.',
+            checkedAt: _lastCheckAt!);
+      }
+      final err = DriverException(
+          'whatsappNumbers: HTTP ${res.statusCode} ${res.body}');
+      _markOffline(_offlineDetail(err));
+      return DeepCheck(
+          ok: false,
+          detail: _status.detail,
+          checkedAt: _lastCheckAt!);
+    } on TimeoutException {
+      final err = DriverException('Tempo esgotado na prova real');
+      _markOffline(_offlineDetail(err));
+      return DeepCheck(
+          ok: false, detail: _status.detail, checkedAt: _lastCheckAt!);
+    } catch (_) {
+      final err = DriverException('Falha de rede na prova real');
+      _markOffline(_offlineDetail(err));
+      return DeepCheck(
+          ok: false, detail: _status.detail, checkedAt: _lastCheckAt!);
+    }
+  }
+
+  String _hhmmss() {
+    final n = DateTime.now();
+    return '${n.hour.toString().padLeft(2, '0')}:'
+        '${n.minute.toString().padLeft(2, '0')}:'
+        '${n.second.toString().padLeft(2, '0')}';
   }
 
   /// Reinicia a sessão travada em 'connecting' (PUT /instance/restart).
@@ -196,11 +401,7 @@ class WhatsAppDriver extends NetworkDriver {
     if (!_config.isConfigured) return;
     try {
       if (await isConnected()) {
-        _status = DriverStatus(
-            connected: true, state: 'online',
-            detail: 'evolution: conectado', accountId: _config.instance);
-        _lastConnOk = true;
-        _lastConnCheck = DateTime.now();
+        _setOnline('evolution: conectado');
         return;
       }
       final now = DateTime.now();
@@ -216,11 +417,7 @@ class WhatsAppDriver extends NetworkDriver {
         }
         await Future<void>.delayed(const Duration(seconds: 3));
         if (await isConnected()) {
-          _status = DriverStatus(
-              connected: true, state: 'online',
-              detail: 'evolution: reconectada', accountId: _config.instance);
-          _lastConnOk = true;
-          _lastConnCheck = DateTime.now();
+          _setOnline('evolution: reconectada');
           return;
         }
       }
@@ -292,22 +489,69 @@ class WhatsAppDriver extends NetworkDriver {
     return null;
   }
 
+  /// Envio com auto-cura: se o socket estiver fantasma (500/428/fechado),
+  /// tenta ressuscitar a sessão 1x e repete. Se falhar de novo, derruba o
+  /// status para erro NA HORA (nada de verde mentiroso) e lança o erro
+  /// amigável. Erro de payload (400) e chave (401) NÃO repetem.
+  Future<T> _sendWithRecovery<T>(Future<T> Function() once,
+      {required bool allowRetry}) async {
+    try {
+      final r = await once();
+      _lastCheckAt = DateTime.now();
+      return r;
+    } on DriverException catch (e) {
+      final msg = e.message;
+      // Chave errada: honestidade imediata, sem repeteco inútil.
+      if (msg.contains('401') || msg.contains('403')) {
+        _markOffline(friendlySendError(e, driverName: name));
+        throw DriverException(_status.detail);
+      }
+      // Payload recusado: problema no contato/texto, não no socket.
+      if (msg.contains('400') || msg.contains('404')) rethrow;
+      // Timeout após upload longo: repetir dobraria a espera e poderia
+      // estourar a janela anti-duplicata do daemon (20min) — sem repeteco,
+      // só marca offline honesto.
+      final timedOut = msg.contains('Tempo esgotado');
+      if (allowRetry &&
+          !timedOut &&
+          _isOfflineSignal(e) &&
+          await _recoverOnce()) {
+        try {
+          final r = await once();
+          _lastCheckAt = DateTime.now();
+          _setOnline('evolution: reconectada na auto-cura');
+          return r;
+        } on DriverException catch (e2) {
+          _markOffline(friendlySendError(e2, driverName: name));
+          throw DriverException(_status.detail);
+        }
+      }
+      if (_isOfflineSignal(e)) {
+        _markOffline(friendlySendError(e, driverName: name));
+        throw DriverException(_status.detail);
+      }
+      rethrow;
+    }
+  }
+
   @override
   Future<String> sendMessage(MessageRequest req) async {
     if (req.contactId.isEmpty || req.text.isEmpty) {
       throw DriverException('contactId/text vazios');
     }
-    // Payload FLAT (PowerZap, validado contra Evolution real):
-    // {"number","text"} — textMessage.* dá 400 "requires property text".
-    final j = await _json('POST', '/message/sendText/${_config.instance}', {
-      'number': toEvolutionNumber(req.contactId),
-      'text': req.text,
-    });
-    final id = ((j['key'] as Map?)?['id'] as String?) ?? '';
-    // Nunca vazio em sucesso (quebra o scheduler).
-    return id.isEmpty
-        ? 'wa-noid-${DateTime.now().microsecondsSinceEpoch}'
-        : id;
+    return _sendWithRecovery(() async {
+      // Payload FLAT (PowerZap, validado contra Evolution real):
+      // {"number","text"} — textMessage.* dá 400 "requires property text".
+      final j = await _json('POST', '/message/sendText/${_config.instance}', {
+        'number': toEvolutionNumber(req.contactId),
+        'text': req.text,
+      });
+      final id = ((j['key'] as Map?)?['id'] as String?) ?? '';
+      // Nunca vazio em sucesso (quebra o scheduler).
+      return id.isEmpty
+          ? 'wa-noid-${DateTime.now().microsecondsSinceEpoch}'
+          : id;
+    }, allowRetry: true);
   }
 
   @override
@@ -384,23 +628,27 @@ class WhatsAppDriver extends NetworkDriver {
     // Leitura em streaming tolerante a arquivos grandes: não impõe teto.
     final bytes = await file.readAsBytes();
     final fname = req.attachmentPath.split(Platform.pathSeparator).last;
-    final j = await _json(
-        'POST', '/message/sendMedia/${_config.instance}',
-        {
-          'number': toEvolutionNumber(req.contactId),
-          'mediatype': detectMediaType(req.attachmentPath),
-          'media': base64Encode(bytes),
-          'mimetype': guessMime(req.attachmentPath),
-          'fileName': fname,
-          'filename': fname,
-          'caption': req.text,
-        },
-        // 15min: PDF gigante sobe devagar mas entrega; sem limite de MB.
-        const Duration(minutes: 15));
-    final id = ((j['key'] as Map?)?['id'] as String?) ?? '';
-    return id.isEmpty
-        ? 'wa-noid-${DateTime.now().microsecondsSinceEpoch}'
-        : id;
+    // Com auto-cura: fantasma (500/428 rápido) tenta ressuscitar 1x;
+    // o throttle de 5min impede tempestade de restart.
+    return _sendWithRecovery(() async {
+      final j = await _json(
+          'POST', '/message/sendMedia/${_config.instance}',
+          {
+            'number': toEvolutionNumber(req.contactId),
+            'mediatype': detectMediaType(req.attachmentPath),
+            'media': base64Encode(bytes),
+            'mimetype': guessMime(req.attachmentPath),
+            'fileName': fname,
+            'filename': fname,
+            'caption': req.text,
+          },
+          // 15min: PDF gigante sobe devagar mas entrega; sem limite de MB.
+          const Duration(minutes: 15));
+      final id = ((j['key'] as Map?)?['id'] as String?) ?? '';
+      return id.isEmpty
+          ? 'wa-noid-${DateTime.now().microsecondsSinceEpoch}'
+          : id;
+    }, allowRetry: true);
   }
 
   /// Parse tolerante de uma linha de contato (PowerZap: várias chaves

@@ -1,0 +1,148 @@
+{
+  "nodes": [
+    {
+      "id": "doc__github_workflows_release_yml",
+      "label": "release.yml",
+      "type": "document",
+      "source_file": "/home/tiagorabelo/chronos/.github/workflows/release.yml",
+      "description": "name: release\n\non:\n  push:\n    tags:\n      - \"v*\"\n\npermissions:\n  contents: write\n\nenv:\n  APP_NAME: chronos_hub\n  FLUTTER_VERSION: \"3.44.9\"\n\njobs:\n  # ── Flutter: análise + testes (porta de entrada) ──────────────────────────\n  check:\n    runs-on: ubuntu-22.04\n    steps:\n      - uses: actions/checkout@v4\n      - uses: subosito/flutter-action@v2\n        with:\n          flutter-version: ${{ env.FLUTTER_VERSION }}\n          cache: true\n      - run: flutter pub get\n      - run: flutter analyze\n     "
+    },
+    {
+      "id": "doc_README_md",
+      "label": "README.md",
+      "type": "document",
+      "source_file": "/home/tiagorabelo/chronos/README.md",
+      "description": "# CHRONOS\n\n```text\n   ██████╗██╗  ██╗██████╗  ██████╗ ███╗   ██╗ ██████╗ ███████╗\n  ██╔════╝██║  ██║██╔══██╗██╔═══██╗████╗  ██║██╔═══██╗██╔════╝\n  ██║     ███████║██████╔╝██║   ██║██╔██╗ ██║██║   ██║███████╗\n  ██║     ██╔══██║██╔══██╗██║   ██║██║╚██╗██║██║   ██║╚════██║\n  ╚██████╗██║  ██║██║  ██║╚██████╔╝██║ ╚████║╚██████╔╝███████║\n   ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ ╚══════╝\n  >> CROSS-PLATFORM HUB FOR ROUTED OUTGOING NETWORK OPEN SOURCE <<\n```\n\n[![License](https://img.shields"
+    },
+    {
+      "id": "doc_analysis_options_yaml",
+      "label": "analysis_options.yaml",
+      "type": "document",
+      "source_file": "/home/tiagorabelo/chronos/analysis_options.yaml",
+      "description": "# This file configures the analyzer, which statically analyzes Dart code to\n# check for errors, warnings, and lints.\n#\n# The issues identified by the analyzer are surfaced in the UI of Dart-enabled\n# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be\n# invoked from the command line by running `flutter analyze`.\n\n# The following line activates a set of recommended lints for Flutter apps,\n# packages, and plugins designed to encourage good coding practices.\ninclude: package:fl"
+    },
+    {
+      "id": "doc_docker_evolution-compose_yml",
+      "label": "evolution-compose.yml",
+      "type": "document",
+      "source_file": "/home/tiagorabelo/chronos/docker/evolution-compose.yml",
+      "description": "# CHRONOS — Evolution API em 1 comando (WhatsApp real).\n# Uso:\n#   EVO_KEY=minha-chave-forte docker compose -f docker/evolution-compose.yml up -d\n#   # app: painel SYNC WHATSAPP -> servidor http://localhost:8080,\n#   #        API KEY = a mesma, instância = chronos -> SALVAR + CONECTAR\n#   #        -> escaneie o QR no celular (WhatsApp > Aparelhos)\n#   docker compose -f docker/evolution-compose.yml down   # parar\nservices:\n  evolution:\n    image: evoapicloud/evolution-api:v2.3.1\n    container_nam"
+    },
+    {
+      "id": "doc_linux_CMakeLists_txt",
+      "label": "CMakeLists.txt",
+      "type": "document",
+      "source_file": "/home/tiagorabelo/chronos/linux/CMakeLists.txt",
+      "description": "# Project-level configuration.\ncmake_minimum_required(VERSION 3.13)\nproject(runner LANGUAGES CXX)\n\n# The name of the executable created for the application. Change this to change\n# the on-disk name of your application.\nset(BINARY_NAME \"chronos_hub\")\n# The unique GTK application identifier for this application. See:\n# https://wiki.gnome.org/HowDoI/ChooseApplicationID\nset(APPLICATION_ID \"com.chronos.hub.chronos_hub\")\n\n# Explicitly opt in to modern CMake behaviors to avoid warnings with recent\n# ve"
+    },
+    {
+      "id": "doc_linux_flutter_CMakeLists_txt",
+      "label": "CMakeLists.txt",
+      "type": "document",
+      "source_file": "/home/tiagorabelo/chronos/linux/flutter/CMakeLists.txt",
+      "description": "# This file controls Flutter-level build steps. It should not be edited.\ncmake_minimum_required(VERSION 3.10)\n\nset(EPHEMERAL_DIR \"${CMAKE_CURRENT_SOURCE_DIR}/ephemeral\")\n\n# Configuration provided via flutter tool.\ninclude(${EPHEMERAL_DIR}/generated_config.cmake)\n\n# TODO: Move the rest of this into files in ephemeral. See\n# https://github.com/flutter/flutter/issues/57146.\n\n# Serves the same purpose as list(TRANSFORM ... PREPEND ...),\n# which isn't available in 3.10.\nfunction(list_prepend LIST_NAM"
+    },
+    {
+      "id": "doc_linux_runner_CMakeLists_txt",
+      "label": "CMakeLists.txt",
+      "type": "document",
+      "source_file": "/home/tiagorabelo/chronos/linux/runner/CMakeLists.txt",
+      "description": "cmake_minimum_required(VERSION 3.13)\nproject(runner LANGUAGES CXX)\n\n# Define the application target. To change its name, change BINARY_NAME in the\n# top-level CMakeLists.txt, not the value here, or `flutter run` will no longer\n# work.\n#\n# Any new source files that you add to the application should be added here.\nadd_executable(${BINARY_NAME}\n  \"main.cc\"\n  \"my_application.cc\"\n  \"${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc\"\n)\n\n# Apply the standard set of build settings. This can be remov"
+    },
+    {
+      "id": "doc_pubspec_yaml",
+      "label": "pubspec.yaml",
+      "type": "document",
+      "source_file": "/home/tiagorabelo/chronos/pubspec.yaml",
+      "description": "name: chronos_hub\ndescription: \"CHRONOS — Cross-platform Hub for Routed Outgoing Network Open Source (Flutter Sci-Fi HUD).\"\npublish_to: 'none'\nversion: 0.10.0+18\n\nenvironment:\n  sdk: ^3.12.2\n\ndependencies:\n  flutter:\n    sdk: flutter\n  http: ^1.2.0\n  intl: ^0.20.0\n  path: ^1.9.0\n  path_provider: ^2.1.0\n  sqflite_common_ffi: ^2.3.0\n  sqlite3: ^3.5.2\n  ffi: ^2.1.0\n  cupertino_icons: ^1.0.8\n  file_picker: ^13.1.0\n\ndev_dependencies:\n  flutter_test:\n    sdk: flutter\n  flutter_lints: ^6.0.0\n\nflutter:\n"
+    },
+    {
+      "id": "doc_windows_CMakeLists_txt",
+      "label": "CMakeLists.txt",
+      "type": "document",
+      "source_file": "/home/tiagorabelo/chronos/windows/CMakeLists.txt",
+      "description": "# Project-level configuration.\ncmake_minimum_required(VERSION 3.14)\nproject(chronos_hub LANGUAGES CXX)\n\n# The name of the executable created for the application. Change this to change\n# the on-disk name of your application.\nset(BINARY_NAME \"chronos_hub\")\n\n# Explicitly opt in to modern CMake behaviors to avoid warnings with recent\n# versions of CMake.\ncmake_policy(VERSION 3.14...3.25)\n\n# Define build configuration option.\nget_property(IS_MULTICONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)\nif(I"
+    },
+    {
+      "id": "doc_windows_flutter_CMakeLists_txt",
+      "label": "CMakeLists.txt",
+      "type": "document",
+      "source_file": "/home/tiagorabelo/chronos/windows/flutter/CMakeLists.txt",
+      "description": "# This file controls Flutter-level build steps. It should not be edited.\ncmake_minimum_required(VERSION 3.14)\n\nset(EPHEMERAL_DIR \"${CMAKE_CURRENT_SOURCE_DIR}/ephemeral\")\n\n# Configuration provided via flutter tool.\ninclude(${EPHEMERAL_DIR}/generated_config.cmake)\n\n# TODO: Move the rest of this into files in ephemeral. See\n# https://github.com/flutter/flutter/issues/57146.\nset(WRAPPER_ROOT \"${EPHEMERAL_DIR}/cpp_client_wrapper\")\n\n# Set fallback configurations for older versions of the flutter tool."
+    },
+    {
+      "id": "doc_windows_runner_CMakeLists_txt",
+      "label": "CMakeLists.txt",
+      "type": "document",
+      "source_file": "/home/tiagorabelo/chronos/windows/runner/CMakeLists.txt",
+      "description": "cmake_minimum_required(VERSION 3.14)\nproject(runner LANGUAGES CXX)\n\n# Define the application target. To change its name, change BINARY_NAME in the\n# top-level CMakeLists.txt, not the value here, or `flutter run` will no longer\n# work.\n#\n# Any new source files that you add to the application should be added here.\nadd_executable(${BINARY_NAME} WIN32\n  \"flutter_window.cpp\"\n  \"main.cpp\"\n  \"utils.cpp\"\n  \"win32_window.cpp\"\n  \"${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc\"\n  \"Runner.rc\"\n  \"runn"
+    },
+    {
+      "id": "repo_chronos",
+      "label": "chronos (Flutter/Dart)",
+      "type": "repository",
+      "source_file": ".",
+      "description": "CHRONOS hub Flutter"
+    }
+  ],
+  "edges": [
+    {
+      "source": "doc__github_workflows_release_yml",
+      "target": "repo_chronos",
+      "relation": "part_of"
+    },
+    {
+      "source": "doc_README_md",
+      "target": "repo_chronos",
+      "relation": "part_of"
+    },
+    {
+      "source": "doc_analysis_options_yaml",
+      "target": "repo_chronos",
+      "relation": "part_of"
+    },
+    {
+      "source": "doc_docker_evolution-compose_yml",
+      "target": "repo_chronos",
+      "relation": "part_of"
+    },
+    {
+      "source": "doc_linux_CMakeLists_txt",
+      "target": "repo_chronos",
+      "relation": "part_of"
+    },
+    {
+      "source": "doc_linux_flutter_CMakeLists_txt",
+      "target": "repo_chronos",
+      "relation": "part_of"
+    },
+    {
+      "source": "doc_linux_runner_CMakeLists_txt",
+      "target": "repo_chronos",
+      "relation": "part_of"
+    },
+    {
+      "source": "doc_pubspec_yaml",
+      "target": "repo_chronos",
+      "relation": "part_of"
+    },
+    {
+      "source": "doc_windows_CMakeLists_txt",
+      "target": "repo_chronos",
+      "relation": "part_of"
+    },
+    {
+      "source": "doc_windows_flutter_CMakeLists_txt",
+      "target": "repo_chronos",
+      "relation": "part_of"
+    },
+    {
+      "source": "doc_windows_runner_CMakeLists_txt",
+      "target": "repo_chronos",
+      "relation": "part_of"
+    }
+  ],
+  "hyperedges": [],
+  "input_tokens": 0,
+  "output_tokens": 0
+}
