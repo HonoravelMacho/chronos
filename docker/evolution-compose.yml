@@ -7,7 +7,7 @@
 #   docker compose -f docker/evolution-compose.yml down   # parar
 services:
   evolution:
-    image: evoapicloud/evolution-api:v2.3.1
+    image: evoapicloud/evolution-api:v2.3.7
     container_name: chronos_evolution
     restart: unless-stopped
     ports:
