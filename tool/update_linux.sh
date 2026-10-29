@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$(dirname "$0")")" # raiz do repo
 
 echo "▶ 1/4 — dependências do dart..."
-flutter pub get -q
+flutter pub get
 
 echo "▶ 2/4 — compilando daemon em ~/.local/bin/chronos_daemon..."
 systemctl --user stop chronos-daemon.service 2>/dev/null || true
