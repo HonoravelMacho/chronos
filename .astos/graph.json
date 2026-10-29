@@ -60,7 +60,7 @@
    "todo_n": 0,
    "todo_ex": [],
    "entry": false,
-   "changed": true,
+   "changed": false,
    "deg": 17,
    "size": 23.3
   },
@@ -453,7 +453,7 @@
    "todo_n": 0,
    "todo_ex": [],
    "entry": false,
-   "changed": true,
+   "changed": false,
    "deg": 11,
    "size": 20.9
   },
@@ -765,7 +765,7 @@
    "todo_n": 0,
    "todo_ex": [],
    "entry": false,
-   "changed": true,
+   "changed": false,
    "deg": 9,
    "size": 19.1
   },
@@ -907,86 +907,86 @@
     {
      "n": "sendMessage",
      "k": "func",
-     "l": 538
+     "l": 557
     },
     {
      "n": "_sendWithRecovery",
      "k": "func",
-     "l": 542
+     "l": 561
     },
     {
      "n": "scheduleMessage",
      "k": "func",
-     "l": 558
+     "l": 577
     },
     {
      "n": "detectMediaType",
      "k": "func",
-     "l": 565
+     "l": 584
     },
     {
      "n": "guessMime",
      "k": "func",
-     "l": 578
+     "l": 597
     },
     {
      "n": "sendMedia",
      "k": "func",
-     "l": 621
+     "l": 640
     },
     {
      "n": "_sendWithRecovery",
      "k": "func",
-     "l": 633
+     "l": 652
     },
     {
      "n": "_parseRow",
      "k": "func",
-     "l": 656
+     "l": 675
     },
     {
      "n": "_asRows",
      "k": "func",
-     "l": 696
+     "l": 715
     },
     {
      "n": "fetchContacts",
      "k": "func",
-     "l": 716
+     "l": 735
     },
     {
      "n": "collect",
      "k": "func",
-     "l": 718
+     "l": 737
     },
     {
      "n": "_jsonRaw",
      "k": "func",
-     "l": 767
+     "l": 786
     },
     {
      "n": "_ensureInstance",
      "k": "func",
-     "l": 829
+     "l": 848
     },
     {
      "n": "requestPairingCode",
      "k": "func",
-     "l": 844
+     "l": 863
     },
     {
      "n": "fetchQrPng",
      "k": "func",
-     "l": 945
+     "l": 964
     },
     {
      "n": "_startsWith",
      "k": "func",
-     "l": 984
+     "l": 1003
     }
    ],
    "caps": [],
-   "loc": 993,
+   "loc": 1012,
    "todo_n": 0,
    "todo_ex": [],
    "entry": false,
@@ -1202,7 +1202,7 @@
    "todo_n": 0,
    "todo_ex": [],
    "entry": false,
-   "changed": true,
+   "changed": false,
    "deg": 8,
    "size": 18.2
   },
@@ -2244,7 +2244,7 @@
    "todo_n": 0,
    "todo_ex": [],
    "entry": false,
-   "changed": true,
+   "changed": false,
    "deg": 5,
    "size": 15.5
   },
@@ -2272,7 +2272,7 @@
    "todo_n": 0,
    "todo_ex": [],
    "entry": false,
-   "changed": true,
+   "changed": false,
    "deg": 4,
    "size": 9.85
   },
@@ -2578,7 +2578,7 @@
    "todo_n": 0,
    "todo_ex": [],
    "entry": false,
-   "changed": true,
+   "changed": false,
    "deg": 4,
    "size": 14.6
   },
@@ -3440,7 +3440,7 @@
    "todo_n": 0,
    "todo_ex": [],
    "entry": true,
-   "changed": true,
+   "changed": false,
    "deg": 3,
    "size": 11.45
   },
@@ -4379,57 +4379,57 @@
     {
      "n": "_recoverThrottle",
      "k": "func",
-     "l": 491
+     "l": 502
     },
     {
      "n": "_recoverThrottle",
      "k": "func",
-     "l": 553
+     "l": 568
     },
     {
      "n": "_daemonHttpError",
      "k": "func",
-     "l": 561
+     "l": 576
     },
     {
      "n": "unitContent",
      "k": "func",
-     "l": 606
+     "l": 621
     },
     {
      "n": "sh",
      "k": "func",
-     "l": 627
+     "l": 642
     },
     {
      "n": "cmdInstall",
      "k": "func",
-     "l": 634
+     "l": 649
     },
     {
      "n": "cmdUninstall",
      "k": "func",
-     "l": 661
+     "l": 676
     },
     {
      "n": "cmdStatus",
      "k": "func",
-     "l": 671
+     "l": 686
     },
     {
      "n": "cmdRestart",
      "k": "func",
-     "l": 683
+     "l": 698
     },
     {
      "n": "usage",
      "k": "func",
-     "l": 696
+     "l": 711
     },
     {
      "n": "main",
      "k": "func",
-     "l": 708
+     "l": 723
     },
     {
      "n": "postOnce",
@@ -4438,7 +4438,7 @@
     }
    ],
    "caps": [],
-   "loc": 739,
+   "loc": 754,
    "todo_n": 0,
    "todo_ex": [],
    "entry": true,
@@ -4980,7 +4980,7 @@
    "todo_n": 0,
    "todo_ex": [],
    "entry": true,
-   "changed": true,
+   "changed": false,
    "deg": 0,
    "size": 6.5
   },
@@ -5894,19 +5894,19 @@
    "lib.drivers.whatsapp_driver",
    "lib.core.driver_registry",
    "Contact",
-   693
+   712
   ],
   [
    "lib.drivers.whatsapp_driver",
    "lib.core.scheduler",
    "start",
-   808
+   827
   ],
   [
    "lib.drivers.whatsapp_driver",
    "lib.core.driver_registry",
    "ServerProbe",
-   878
+   897
   ],
   [
    "lib.main",
@@ -7076,10 +7076,10 @@
    },
    {
     "file": "lib/drivers/whatsapp_driver.dart",
-    "loc": 993,
+    "loc": 1012,
     "symbols": 38,
     "deg": 8,
-    "score": 5.98
+    "score": 6.03
    },
    {
     "file": "lib/views/calendar_view.dart",
@@ -7202,27 +7202,31 @@
   ]
  },
  "changed": [
-  ".astos/",
-  ".gitattributes",
-  "AGENTS.md",
-  "docker/evolution-compose.yml",
   "grafo_interativo.html",
-  "graphify-out/",
-  "lib/bindings/",
-  "lib/core/app_controller.dart",
-  "lib/core/send_errors.dart",
+  "graphify-out/.graphify_labels.json",
+  "graphify-out/.graphify_labels.json.sig",
+  "graphify-out/2026-10-21/",
+  "graphify-out/GRAPH_REPORT.md",
+  "graphify-out/cache/ast/v0.9.74-s4/06880058ee91a4d902159565c9f6c3c880c06432103fa65a0b4ba3414df955ab.json",
+  "graphify-out/cache/ast/v0.9.74-s4/32ddccdc2d27dc3ed5d22b5cc40633072fcf7463180622e8ea9f84098de04875.json",
+  "graphify-out/cache/ast/v0.9.74-s4/4249aa2ac1519a692785c332985e8a0ea8305a0fb9ea8cb76de57c5b8868df1a.json",
+  "graphify-out/cache/ast/v0.9.74-s4/43bb3680fac243f1cf9c1cb28ee3fa2d8f13bb69bfa9f0c4b7921c7c5acd97df.json",
+  "graphify-out/cache/ast/v0.9.74-s4/6da84f07188a5337e7bcaa25b9f90202682286c62e8e43106f798078b205922e.json",
+  "graphify-out/cache/ast/v0.9.74-s4/78b5871f59dfa1bfdc1b243623d02405678b24ea2909fd29fbeb7aea8aecdfec.json",
+  "graphify-out/cache/ast/v0.9.74-s4/9d4ba6b5f6f17c28d412149a1194442cb15f55abfbfdc5d8f9a1daa6cf4cd74e.json",
+  "graphify-out/cache/ast/v0.9.74-s4/a3b55f5ca239f51ed86e7c786f407072dc5997d21e9580b308c0363d24a08732.json",
+  "graphify-out/cache/ast/v0.9.74-s4/a6bfa6adbece1d96c7a089a90f76418cef052f5f871cb4c4cfc72100bab8f204.json",
+  "graphify-out/cache/ast/v0.9.74-s4/e06fba7c116b712b05a0d408f54e500f7cc0490bb4b159de65a2654a5f3ab7e4.json",
+  "graphify-out/cache/ast/v0.9.74-s4/e075bac1dd1046986287dc68cfbe5b616a0243bfb3f664da080adeac10305504.json",
+  "graphify-out/cache/ast/v0.9.74-s4/e1a16a762df43769c080954e0c546d0cefebad54c1ad1e8eaa8e4e6cd23fd865.json",
+  "graphify-out/cache/ast/v0.9.74-s4/e84eb1cb1470bdd8af4ec523c10160745682bbdb76a87347ec6e9ea2e4d400a2.json",
+  "graphify-out/cache/ast/v0.9.74-s4/eaef808eb0eb8bd8b11b9838a251135c53cdc96b61c7151741de7ed5b4e56e6b.json",
+  "graphify-out/cache/stat-index.json",
+  "graphify-out/graph.html",
+  "graphify-out/graph.json",
+  "graphify-out/manifest.json",
   "lib/drivers/whatsapp_driver.dart",
-  "lib/tom-select/",
-  "lib/ui/hud_theme.dart",
-  "lib/views/calendar_view.dart",
-  "lib/views/dashboard_view.dart",
-  "lib/views/pairing_view.dart",
-  "lib/views/whatsapp_card.dart",
-  "lib/vis-9.1.2/",
-  "pubspec.yaml",
-  "test/whatsapp_recovery_test.dart",
-  "tool/chronos_daemon.dart",
-  "tool/export_grafo_interativo.py"
+  "tool/chronos_daemon.dart"
  ],
  "fs_index": {
   "android/app/build.gradle.kts": {
@@ -10045,8 +10049,8 @@
    }
   },
   "lib/drivers/whatsapp_driver.dart": {
-   "m": 1791571439,
-   "s": 36570,
+   "m": 1793234122,
+   "s": 37440,
    "lang": "dart",
    "rec": {
     "id": "lib.drivers.whatsapp_driver",
@@ -10178,82 +10182,82 @@
      {
       "n": "sendMessage",
       "k": "func",
-      "l": 538
+      "l": 557
      },
      {
       "n": "_sendWithRecovery",
       "k": "func",
-      "l": 542
+      "l": 561
      },
      {
       "n": "scheduleMessage",
       "k": "func",
-      "l": 558
+      "l": 577
      },
      {
       "n": "detectMediaType",
       "k": "func",
-      "l": 565
+      "l": 584
      },
      {
       "n": "guessMime",
       "k": "func",
-      "l": 578
+      "l": 597
      },
      {
       "n": "sendMedia",
       "k": "func",
-      "l": 621
+      "l": 640
      },
      {
       "n": "_sendWithRecovery",
       "k": "func",
-      "l": 633
+      "l": 652
      },
      {
       "n": "_parseRow",
       "k": "func",
-      "l": 656
+      "l": 675
      },
      {
       "n": "_asRows",
       "k": "func",
-      "l": 696
+      "l": 715
      },
      {
       "n": "fetchContacts",
       "k": "func",
-      "l": 716
+      "l": 735
      },
      {
       "n": "collect",
       "k": "func",
-      "l": 718
+      "l": 737
      },
      {
       "n": "_jsonRaw",
       "k": "func",
-      "l": 767
+      "l": 786
      },
      {
       "n": "_ensureInstance",
       "k": "func",
-      "l": 829
+      "l": 848
      },
      {
       "n": "requestPairingCode",
       "k": "func",
-      "l": 844
+      "l": 863
      },
      {
       "n": "fetchQrPng",
       "k": "func",
-      "l": 945
+      "l": 964
      },
      {
       "n": "_startsWith",
       "k": "func",
-      "l": 984
+      "l": 1003
      }
     ],
     "calls": [
@@ -10522,188 +10526,192 @@
       499
      ],
      [
+      "destravada",
+      523
+     ],
+     [
       "daemon",
-      512
+      531
      ],
      [
       "FLAT",
-      543
+      562
      ],
      [
       "sucesso",
-      550
+      569
      ],
      [
       "extensão",
-      564
+      583
      ],
      [
       "lastIndexOf",
-      566
+      585
      ],
      [
       "anexo",
-      612
+      631
      ],
      [
       "media",
-      613
+      632
      ],
      [
       "caption",
-      614
+      633
      ],
      [
       "PDFs",
-      616
+      635
      ],
      [
       "necessário",
-      617
+      636
      ],
      [
       "real",
-      618
+      637
      ],
      [
       "File",
-      623
+      642
      ],
      [
       "exists",
-      624
+      643
      ],
      [
       "readAsBytes",
-      629
+      648
      ],
      [
       "base64Encode",
-      639
+      658
      ],
      [
       "contato",
-      654
+      673
      ],
      [
       "endsWith",
-      672
+      691
      ],
      [
       "Contact",
-      693
-     ],
-     [
-      "toList",
-      698
-     ],
-     [
-      "every",
-      705
-     ],
-     [
-      "fallbacks",
       712
      ],
      [
+      "toList",
+      717
+     ],
+     [
+      "every",
+      724
+     ],
+     [
+      "fallbacks",
+      731
+     ],
+     [
       "findContacts",
-      713
+      732
      ],
      [
       "findChats",
-      713
+      732
      ],
      [
       "retornado",
-      763
+      782
      ],
      [
       "servidor",
-      796
+      815
      ],
      [
       "porta",
-      798
+      817
      ],
      [
       "probePortMs",
-      801
+      820
      ],
      [
       "tryParse",
-      803
+      822
      ],
      [
       "Stopwatch",
-      808
+      827
      ],
      [
       "start",
-      808
+      827
      ],
      [
       "destroy",
-      811
+      830
      ],
      [
       "stop",
-      821
+      840
      ],
      [
       "pareamento",
-      841
+      860
      ],
      [
       "código",
-      865
+      884
      ],
      [
       "errado",
-      872
+      891
      ],
      [
       "errada",
-      873
+      892
      ],
      [
       "probeServer",
-      874
+      893
      ],
      [
       "ServerProbe",
-      878
+      897
      ],
      [
       "INVÁLIDA",
-      914
+      933
      ],
      [
       "container",
-      915
+      934
      ],
      [
       "VÁLIDA",
-      931
+      950
      ],
      [
       "indexOf",
-      958
+      977
      ],
      [
       "padding",
-      963
+      982
      ],
      [
       "base64Decode",
-      968
+      987
      ],
      [
       "ilegível",
-      970
+      989
      ],
      [
       "inesperado",
-      980
+      999
      ]
     ],
     "tops": [
@@ -10746,7 +10754,7 @@
      "toEvolutionNumber"
     ],
     "caps": [],
-    "loc": 993,
+    "loc": 1012,
     "todos": [],
     "entry": false,
     "pkg": ""
@@ -18519,8 +18527,8 @@
    }
   },
   "tool/chronos_daemon.dart": {
-   "m": 1791571470,
-   "s": 27633,
+   "m": 1793233881,
+   "s": 28573,
    "lang": "dart",
    "rec": {
     "id": "tool.chronos_daemon",
@@ -18596,57 +18604,57 @@
      {
       "n": "_recoverThrottle",
       "k": "func",
-      "l": 491
+      "l": 502
      },
      {
       "n": "_recoverThrottle",
       "k": "func",
-      "l": 553
+      "l": 568
      },
      {
       "n": "_daemonHttpError",
       "k": "func",
-      "l": 561
+      "l": 576
      },
      {
       "n": "unitContent",
       "k": "func",
-      "l": 606
+      "l": 621
      },
      {
       "n": "sh",
       "k": "func",
-      "l": 627
+      "l": 642
      },
      {
       "n": "cmdInstall",
       "k": "func",
-      "l": 634
+      "l": 649
      },
      {
       "n": "cmdUninstall",
       "k": "func",
-      "l": 661
+      "l": 676
      },
      {
       "n": "cmdStatus",
       "k": "func",
-      "l": 671
+      "l": 686
      },
      {
       "n": "cmdRestart",
       "k": "func",
-      "l": 683
+      "l": 698
      },
      {
       "n": "usage",
       "k": "func",
-      "l": 696
+      "l": 711
      },
      {
       "n": "main",
       "k": "func",
-      "l": 708
+      "l": 723
      },
      {
       "n": "postOnce",
@@ -18968,148 +18976,156 @@
       430
      ],
      [
+      "WhatsApp",
+      487
+     ],
+     [
       "fantasma",
-      486
+      497
      ],
      [
       "repete",
-      488
-     ],
-     [
-      "fila",
       499
      ],
      [
+      "fila",
+      510
+     ],
+     [
       "repeteco",
-      504
+      515
      ],
      [
       "messages",
-      525
+      536
      ],
      [
       "VALUES",
-      526
+      537
+     ],
+     [
+      "lote",
+      543
      ],
      [
       "rede",
-      539
+      554
      ],
      [
       "cura",
-      552
+      567
      ],
      [
       "claro",
-      560
+      575
      ],
      [
       "instável",
-      569
+      584
      ],
      [
       "fechada",
-      574
+      589
      ],
      [
       "recusada",
-      579
-     ],
-     [
-      "Evolution",
-      583
-     ],
-     [
-      "envio",
-      587
-     ],
-     [
-      "falhou",
-      591
-     ],
-     [
-      "enviar",
       594
      ],
      [
+      "Evolution",
+      598
+     ],
+     [
+      "envio",
+      602
+     ],
+     [
+      "falhou",
+      606
+     ],
+     [
+      "enviar",
+      609
+     ],
+     [
       "run",
-      629
+      644
      ],
      [
       "write",
-      630
+      645
      ],
      [
       "endsWith",
-      638
-     ],
-     [
-      "instalado",
-      639
-     ],
-     [
-      "login",
-      643
-     ],
-     [
-      "loginctl",
-      647
-     ],
-     [
-      "create",
-      651
-     ],
-     [
-      "writeAsString",
       653
      ],
      [
+      "instalado",
+      654
+     ],
+     [
+      "login",
+      658
+     ],
+     [
+      "loginctl",
+      662
+     ],
+     [
+      "create",
+      666
+     ],
+     [
+      "writeAsString",
+      668
+     ],
+     [
       "ativar",
-      657
+      672
      ],
      [
       "DESCONECTAR",
-      659
+      674
      ],
      [
       "exists",
-      668
+      683
      ],
      [
       "delete",
-      668
+      683
      ],
      [
       "comando",
-      682
+      697
      ],
      [
       "Linux",
-      684
+      699
      ],
      [
       "reiniciar",
-      688
+      703
      ],
      [
       "parado",
-      694
+      709
      ],
      [
       "plano",
-      698
+      713
      ],
      [
       "tryParse",
-      721
+      736
      ],
      [
       "split",
-      721
+      736
      ],
      [
       "entregue",
-      726
+      741
      ]
     ],
     "tops": [
@@ -19137,7 +19153,7 @@
      "usage"
     ],
     "caps": [],
-    "loc": 739,
+    "loc": 754,
     "todos": [],
     "entry": true,
     "pkg": ""
@@ -20115,8 +20131,8 @@
   "files": 67,
   "edges": 113,
   "call_edges": 259,
-  "files_reused": 67,
-  "git_changed": 21,
+  "files_reused": 65,
+  "git_changed": 25,
   "langs": [
    "c",
    "dart",
@@ -20128,9 +20144,9 @@
   "supported": ".py, .c, .h, .cpp, .hpp, .cc, .cxx, .dart, .rs, .js, .jsx, .ts, .tsx, .java, .go, .cs, .kt",
   "fallback": false,
   "generic_truncated": false,
-  "generated_in_s": 0.09,
+  "generated_in_s": 0.48,
   "full_rescan": false,
   "out": "/home/tiagorabelo/chronos/.astos",
-  "scanned_at": "2026-10-21T04:13:41+00:00"
+  "scanned_at": "2026-10-29T00:37:30+00:00"
  }
 }

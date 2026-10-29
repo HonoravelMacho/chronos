@@ -508,6 +508,25 @@ class WhatsAppDriver extends NetworkDriver {
       }
       // Payload recusado: problema no contato/texto, não no socket.
       if (msg.contains('400') || msg.contains('404')) rethrow;
+      // 500 SEM "connection closed" costuma ser rate-overlimit do
+      // WhatsApp (rajada no resync que a Evolution faz ao reabrir o
+      // socket): reiniciar a sessão aqui dispara ressincronia completa
+      // e piora a saturação — espera ~1min e repete 1x.
+      final low = msg.toLowerCase();
+      final ghostMarker =
+          low.contains('connection closed') || low.contains('428');
+      if (!ghostMarker && msg.contains('500')) {
+        await Future<void>.delayed(const Duration(seconds: 65));
+        try {
+          final r = await once();
+          _lastCheckAt = DateTime.now();
+          _setOnline('evolution: destravada (backoff anti-overlimit)');
+          return r;
+        } on DriverException catch (e2) {
+          _markOffline(friendlySendError(e2, driverName: name));
+          throw DriverException(_status.detail);
+        }
+      }
       // Timeout após upload longo: repetir dobraria a espera e poderia
       // estourar a janela anti-duplicata do daemon (20min) — sem repeteco,
       // só marca offline honesto.

@@ -483,6 +483,17 @@ Future<int> runOnce(
           }
 
           var res = await postOnce();
+          // 500/428: primeiro backoff de ~1min SEM restart — o 500 mais
+          // comum é rate-overlimit do WhatsApp (rajada no resync que a
+          // Evolution faz ao reabrir o socket), e um restart dispararia
+          // ressincronia completa piorando tudo. Ghost socket de
+          // verdade cai na auto-cura da etapa abaixo.
+          if (res.statusCode == 500 || res.statusCode == 428) {
+            log('[$id] HTTP ${res.statusCode} — esperando 65s '
+                '(anti rate-overlimit) antes de repetir sem restart...');
+            await Future<void>.delayed(const Duration(seconds: 65));
+            res = await postOnce();
+          }
           // Socket fantasma (open que não envia: 500/428): 1 auto-cura
           // (restart + repeteco) antes de queimar para erro. Timeout NÃO
           // repete (upload longo: dobraria a espera e furaria os 20min
@@ -529,6 +540,10 @@ Future<int> runOnce(
             finish(db, id, 'sent');
             delivered++;
             log('[$id] entregue -> $number');
+            // Pacing anti-flood: envios em lote (catch-up de horas) com
+            // pausas curtas imitam uma pessoa e evitam o rate-overlimit
+            // do WhatsApp durante ressincronias da Evolution.
+            await Future<void>.delayed(const Duration(seconds: 3));
           }
         } catch (e) {
           // Rede falhou: devolve à fila (fica amarela p/ próxima varredura).
