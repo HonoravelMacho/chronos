@@ -44,6 +44,7 @@ class _WhatsappQrDialogState extends State<_WhatsappQrDialog> {
   bool _restarting = false;
   bool _forcing = false;
   bool _recreating = false;
+  bool _curando = false;
   bool _autoFixed = false;
 
   @override
@@ -108,6 +109,46 @@ class _WhatsappQrDialogState extends State<_WhatsappQrDialog> {
       if (mounted) setState(() => _restarting = false);
     }
     await _fetch();
+  }
+
+  /// CURAR TUDO (1 clique): heal completo sem adivinhar qual botão usar.
+  /// Reinicia a sessão (cura 'down'/fantasma pós-boots do PC), reconecta,
+  /// espera o resync do WhatsApp terminar (15s) e faz a prova real
+  /// (verifyDeep). Se não curar, o resultado diz o próximo passo.
+  Future<void> _fullHealAndFetch({bool silent = false}) async {
+    setState(() {
+      _curando = true;
+      if (!silent) _error = null;
+    });
+    bool ok = false;
+    String detail = '';
+    try {
+      try {
+        await widget.wa.restartInstance();
+      } catch (_) {}
+      // Resync do Baileys volta de minutos a fio: esperar o canal abrir
+      // limpo evita conferir no meio do resync (status mentiroso).
+      await Future<void>.delayed(const Duration(seconds: 15));
+      try {
+        await widget.wa.connect();
+      } catch (_) {}
+      try {
+        final v = await widget.wa.verifyDeep();
+        ok = v.ok;
+        detail = v.detail;
+      } catch (_) {
+        detail = 'verificação falhou — confira se a Evolution está de pé';
+      }
+    } finally {
+      if (mounted) setState(() => _curando = false);
+    }
+    await _fetch();
+    if (!silent && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(ok
+              ? 'CURA OK — $detail'
+              : 'CURA INCOMPLETA — $detail')));
+    }
   }
 
   /// QR NOVO À FORÇA: derruba a sessão travada no servidor e gera QR
@@ -202,7 +243,7 @@ class _WhatsappQrDialogState extends State<_WhatsappQrDialog> {
   @override
   Widget build(BuildContext context) {
     final busy =
-        _loading || _restarting || _forcing || _recreating;
+        _loading || _restarting || _forcing || _recreating || _curando;
     return Dialog(
       backgroundColor: Colors.transparent,
       child: ConstrainedBox(
@@ -292,6 +333,16 @@ class _WhatsappQrDialogState extends State<_WhatsappQrDialog> {
                             : () =>
                                 _restartAndFetch())),
               ]),
+              const SizedBox(height: 8),
+              NeonButton(
+                  label: _curando
+                      ? 'CURANDO (15s + prova real)...'
+                      : 'CURAR TUDO (1 CLIQUE)',
+                  accent: HudColors.matrix,
+                  filled: false,
+                  icon: Icons.healing,
+                  onPressed:
+                      busy ? null : () => _fullHealAndFetch()),
               const SizedBox(height: 8),
               NeonButton(
                   label: _forcing
