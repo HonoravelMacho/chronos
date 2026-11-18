@@ -226,16 +226,27 @@ Future<void> _ensureInstance(String baseUrl, String apiKey,
   }
 }
 
-/// Reinicia a sessão (PUT /instance/restart): a Evolution recarrega o
+/// Reinicia a sessão (POST /instance/restart): a Evolution recarrega o
 /// armazenamento de autenticação e o socket volta sozinho.
+/// A v2.3.7 responde 404 para PUT — era por isso que a auto-cura nunca
+/// reiniciava de verdade (o erro era engolido).
 Future<void> _restartSession(String baseUrl, String apiKey,
     String instance) async {
   final client = http.Client();
   try {
-    await client
-        .put(Uri.parse('$baseUrl/instance/restart/$instance'),
-            headers: {'Accept': 'application/json', 'apikey': apiKey})
-        .timeout(const Duration(seconds: 20));
+    final uri = Uri.parse('$baseUrl/instance/restart/$instance');
+    final headers = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'apikey': apiKey,
+    };
+    Future<int> call(Future<http.Response> f) async =>
+        (await f.timeout(const Duration(seconds: 20))).statusCode;
+    final code = await call(client.post(uri, headers: headers));
+    if (code == 404) {
+      // Evolution antiga usava PUT.
+      await call(client.put(uri, headers: headers));
+    }
   } catch (_) {
     // diagnóstico completo fica em _state
   } finally {
@@ -483,43 +494,45 @@ Future<int> runOnce(
           }
 
           var res = await postOnce();
-          // 500/428: primeiro backoff de ~1min SEM restart — o 500 mais
-          // comum é rate-overlimit do WhatsApp (rajada no resync que a
-          // Evolution faz ao reabrir o socket), e um restart dispararia
-          // ressincronia completa piorando tudo. Ghost socket de
-          // verdade cai na auto-cura da etapa abaixo.
-          if (res.statusCode == 500 || res.statusCode == 428) {
-            log('[$id] HTTP ${res.statusCode} — esperando 65s '
+          // 500 SEM "connection closed" é rate-overlimit do WhatsApp
+          // (rajada no resync que a Evolution faz ao reabrir o socket):
+          // espera ~1min e repete SEM restart (restart piora a saturação).
+          if (res.statusCode == 500 && !_isGhostResponse(res)) {
+            log('[$id] HTTP 500 — esperando 65s '
                 '(anti rate-overlimit) antes de repetir sem restart...');
             await Future<void>.delayed(const Duration(seconds: 65));
             res = await postOnce();
           }
-          // Socket fantasma (open que não envia: 500/428): 1 auto-cura
-          // (restart + repeteco) antes de queimar para erro. Timeout NÃO
-          // repete (upload longo: dobraria a espera e furaria os 20min
-          // anti-duplicata). Throttle de 10min anti-tempestade.
-          if ((res.statusCode == 500 || res.statusCode == 428) &&
-              _recoverThrottle()) {
-            log('[$id] HTTP ${res.statusCode} (socket fantasma?) — '
+          // Socket fantasma: a Evolution v2.3.7 devolve HTTP 400 com
+          // "Error: Connection Closed" (não 428). Isso NÃO é payload ruim.
+          // Auto-cura: restart de instância + repeteco; se não ressuscitar
+          // (bug conhecido da v2.3.7), reinicia o CONTAINER e repete.
+          if (_isGhostResponse(res) && _recoverThrottle()) {
+            log('[$id] sessão do WhatsApp morta (${_ghostLabel(res)}) — '
                 'reiniciando sessão e repetindo 1x...');
             await _restartSession(baseUrl, apiKey, instance);
             await Future<void>.delayed(const Duration(seconds: 5));
-            try {
+            res = await postOnce();
+            if (_isGhostResponse(res) && await _restartEvolutionContainer()) {
               res = await postOnce();
-            } catch (e) {
-              // Rede caiu no repeteco: devolve à fila (próximo ciclo).
-              db.execute(
-                  "UPDATE schedules SET status = 'pending' "
-                  "WHERE id = ? AND status = 'sending'",
-                  [id]);
-              log('[$id] falha de rede no repeteco ($e) — próximo ciclo');
-              continue;
             }
           }
+          // Continua fantasma: mantém PENDENTE (não queima para erro) —
+          // o próximo ciclo tenta de novo e o catch-up vale até 24h.
+          if (_isGhostResponse(res)) {
+            db.execute(
+                "UPDATE schedules SET status = 'pending' "
+                "WHERE id = ? AND status = 'sending'",
+                [id]);
+            log('[$id] sessão do WhatsApp continua morta '
+                '(${_ghostLabel(res)}) — mantida PENDENTE para o próximo '
+                'ciclo (nada foi perdido)');
+            continue;
+          }
           if (res.statusCode >= 400) {
-            finish(db, id, 'error',
-                _daemonHttpError(res.statusCode, res.body));
-            log('[$id] HTTP ${res.statusCode} — marcada em vermelho');
+            final err = _daemonHttpError(res.statusCode, res.body);
+            finish(db, id, 'error', err);
+            log('[$id] HTTP ${res.statusCode} — marcada em vermelho: $err');
           } else {
             dynamic j;
             try {
@@ -572,14 +585,110 @@ bool _recoverThrottle() {
   return true;
 }
 
+/// A resposta significa "socket do WhatsApp morto"?
+/// A v2.3.7 devolve 428 em alguns caminhos e HTTP 400 com
+/// {"response":{"message":["Error: Connection Closed"]}} em outros —
+/// ambos são a MESMA coisa (sessão caiu), nunca payload inválido.
+bool _isGhostResponse(http.Response res) {
+  if (res.statusCode == 428) return true;
+  if (res.statusCode != 400 && res.statusCode != 500) return false;
+  final low = res.body.toLowerCase();
+  return low.contains('connection closed') ||
+      low.contains('precondition required');
+}
+
+String _ghostLabel(http.Response res) => 'HTTP ${res.statusCode}';
+
+int _lastContainerRestartAt = 0;
+
+/// Último recurso (desktop): reinicia o CONTAINER da Evolution.
+/// Na v2.3.7 o POST /instance/restart responde 200 mas NÃO ressuscita o
+/// socket fantasma; só o restart do container reabre a conexão de
+/// verdade (comprovado em campo em 02/11/2026). Descobre o nome pelo
+/// `docker ps` (imagem evolution-api) ou usa CHRONOS_EVOLUTION_CONTAINER.
+/// Throttle de 10min. Retorna true se o container foi reiniciado.
+Future<bool> _restartEvolutionContainer() async {
+  final nowS = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  if (_lastContainerRestartAt != 0 &&
+      nowS - _lastContainerRestartAt < 600) {
+    return false;
+  }
+  _lastContainerRestartAt = nowS;
+  var name =
+      (Platform.environment['CHRONOS_EVOLUTION_CONTAINER'] ?? '').trim();
+  try {
+    if (name.isEmpty) {
+      final ps = await Process.run(
+          'docker', ['ps', '--format', '{{.Names}}|{{.Image}}']);
+      if (ps.exitCode != 0) {
+        log('docker ps falhou (code ${ps.exitCode}) — sem auto-cura por '
+            'container');
+        return false;
+      }
+      for (final line in '${ps.stdout}'.split('\n')) {
+        final parts = line.trim().split('|');
+        if (parts.length >= 2 &&
+            parts[1].toLowerCase().contains('evolution-api')) {
+          name = parts[0].trim();
+          break;
+        }
+      }
+    }
+    if (name.isEmpty) return false;
+    log('container "$name" — reiniciando (último recurso do socket '
+        'fantasma; a sessão do WhatsApp é preservada)...');
+    final r = await Process.run('docker', ['restart', name]);
+    if (r.exitCode != 0) {
+      log('docker restart falhou (code ${r.exitCode}): ${r.stderr}');
+      return false;
+    }
+    // A Evolution leva ~30-45s para reabrir o socket.
+    await Future<void>.delayed(const Duration(seconds: 45));
+    return true;
+  } catch (e) {
+    log('docker indisponível para auto-cura: $e');
+    return false;
+  }
+}
+
+/// Motivo da falha escondido pela Evolution em qualquer formato:
+/// message string, message lista, ou response.message (lista de listas).
+String _errorDetailFromBody(String body) {
+  dynamic j;
+  try {
+    j = jsonDecode(body);
+  } catch (_) {
+    return '';
+  }
+  if (j is! Map) return '';
+  dynamic m = j['message'];
+  final resp = j['response'];
+  // Prefere o motivo específico do "response" ao genérico "Bad Request".
+  if (m == null && resp is Map) {
+    m = resp['message'] ?? resp['error'];
+  }
+  m ??= j['error'];
+  if (m is List) {
+    return m
+        .map((e) => e is List ? e.join(' ') : '$e')
+        .where((e) => e.trim().isNotEmpty)
+        .join(' ')
+        .trim();
+  }
+  return m == null ? '' : '$m'.trim();
+}
+
 /// Erro HTTP da Evolution em PT-BR claro (o que houve + o que fazer).
 String _daemonHttpError(int code, String body) {
-  String detail = '';
-  try {
-    final j = jsonDecode(body);
-    if (j is Map && j['message'] is String) detail = j['message'] as String;
-  } catch (_) {}
+  final detail = _errorDetailFromBody(body);
   final suffix = detail.isNotEmpty ? ' — a Evolution disse: "$detail"' : '';
+  if (code == 400 &&
+      (detail.toLowerCase().contains('connection closed') ||
+          detail.toLowerCase().contains('precondition required'))) {
+    return 'Sessão do WhatsApp caiu (Connection Closed) — o daemon tentou '
+        'reconectar; se repetir, reinicie o container da Evolution e '
+        'toque REENVIAR$suffix';
+  }
   if (code == 500) {
     return 'Sessão do WhatsApp instável (erro 500: diz conectada mas não '
         'envia — a auto-cura já tentou 1x). No app: DASHBOARD › RECONECTAR '

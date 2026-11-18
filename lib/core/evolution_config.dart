@@ -87,6 +87,7 @@ class EvolutionConfig {
         baseUrl: baseUrl.isEmpty ? 'http://localhost:8080' : baseUrl,
         apiKey: apiKey,
         instance: instance.isEmpty ? 'chronos' : instance,
+        ownerNumber: ownerNumber,
       );
 }
 

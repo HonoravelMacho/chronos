@@ -51,15 +51,26 @@ void main() {
       expect(d.status.connected, isTrue);
     });
 
-    test('500 duas vezes -> erro honesto e status cai', () async {
+    test('400 "Connection Closed" (v2.3.7) -> fantasma, não payload',
+        () async {
+      var restarts = 0;
       final client = MockClient((req) async {
         final path = req.url.path;
         if (path.startsWith('/instance/restart/')) {
+          restarts++;
           return http.Response('{}', 200);
         }
         if (path.startsWith('/message/sendText/')) {
+          // Formato real da v2.3.7: motivo escondido em response.message.
           return http.Response(
-              '{"message":"Connection Closed"}', 500);
+              jsonEncode({
+                'status': 400,
+                'error': 'Bad Request',
+                'response': {
+                  'message': ['Error: Connection Closed']
+                }
+              }),
+              400);
         }
         return http.Response('{"message":"Not found"}', 404);
       });
@@ -69,12 +80,14 @@ void main() {
             MessageRequest(contactId: 'wa:5511999990001', text: 'oi'));
         fail('deveria lançar');
       } on DriverException catch (e) {
-        expect(e.message, contains('500'));
+        // Erro honesto de SESSÃO (não "confira o número do contato").
+        expect(e.message, contains('Connection Closed'));
         expect(e.message, contains('REENVIAR'));
+        expect(e.message, isNot(contains('número do contato')));
       }
+      expect(restarts, 1); // tentou a auto-cura
       expect(d.status.connected, isFalse);
       expect(d.status.state, 'error');
-      expect(d.lastCheckAt, isNotNull);
     });
 
     test('400 (payload) não derruba o status nem repete', () async {
@@ -140,6 +153,9 @@ void main() {
               }),
               200);
         }
+        if (path.contains('sendPresence')) {
+          return http.Response('{"presence":"paused"}', 201);
+        }
         if (path.contains('whatsappNumbers')) {
           return http.Response(
               jsonEncode([
@@ -166,7 +182,7 @@ void main() {
               }),
               200);
         }
-        if (path.contains('whatsappNumbers')) {
+        if (path.contains('sendPresence')) {
           return http.Response(
               '{"message":"Connection Closed"}', 428);
         }
@@ -211,7 +227,7 @@ void main() {
       expect(d.lastCheckAt, isNotNull);
     });
 
-    test('métodos HTTP respeitados: PUT restart, DELETE logout/delete',
+    test('métodos HTTP respeitados: POST restart, DELETE logout/delete',
         () async {
       final methods = <String>[];
       final client = MockClient((req) async {
@@ -243,7 +259,7 @@ void main() {
       expect(
           methods,
           containsAll([
-            'PUT /instance/restart/chronos',
+            'POST /instance/restart/chronos',
             'DELETE /instance/logout/chronos',
             'DELETE /instance/delete/chronos',
             'POST /instance/create',

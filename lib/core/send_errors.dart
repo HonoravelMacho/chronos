@@ -5,6 +5,17 @@
 
 import 'driver_registry.dart';
 
+/// Sinal de "socket fantasma": a Evolution responde 428 ou (v2.3.7)
+/// HTTP 400 com "Connection Closed"/"Precondition Required". Isso NÃO é
+/// erro de payload/número — é a sessão do WhatsApp morta, que precisa de
+/// reconexão. Nunca deve queimar o agendamento para erro definitivo.
+bool isGhostSocketError(Object e) {
+  final low = (e is DriverException ? e.message : '$e').toLowerCase();
+  return low.contains('connection closed') ||
+      low.contains('precondition required') ||
+      low.contains('socket fantasma');
+}
+
 /// Explica o motivo da falha + ação sugerida, em PT-BR direto.
 ///
 /// Exemplos:
@@ -38,6 +49,14 @@ String friendlySendError(Object e, {String driverName = 'whatsapp'}) {
   if (hasAny(['404', 'not found', 'instance not found'])) {
     return 'Instância "$driverName" não encontrada na Evolution (HTTP 404) — '
         'toque SINCRONIZAR/CONECTAR no painel SYNC e REENVIAR.';
+  }
+  // Socket fantasma: Evolution diz conectada mas o WhatsApp caiu. A
+  // v2.3.7 devolve 400 "Connection Closed" (não 428) — precisa vir ANTES
+  // do ramo de HTTP 400 para não culpar o número do contato.
+  if (isGhostSocketError(raw)) {
+    return 'A sessão do WhatsApp caiu (Connection Closed) — o CHRONOS '
+        'tentou reconectar sozinho. Se repetir, reinicie o container da '
+        'Evolution e toque REENVIAR.';
   }
   if (hasAny(['400', 'bad request', 'requires property'])) {
     return 'A Evolution recusou o envio (HTTP 400): $raw — '

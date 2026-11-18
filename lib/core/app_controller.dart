@@ -274,6 +274,15 @@ class AppController extends ChangeNotifier {
               contact: job.contactId, body: job.text,
               sentAt: Scheduler.nowUnix(), tag: job.tag);
         } on DriverException catch (e) {
+          // Socket fantasma (Connection Closed): NÃO é culpa do contato —
+          // segura PENDENTE e tenta de novo (o daemon do PC também
+          // assume). Antes virava erro vermelho e a mensagem se perdia.
+          if (isGhostSocketError(e)) {
+            await _holdPending(job, 60);
+            await refreshHistory();
+            notifyListeners();
+            return;
+          }
           // Mensagem clara: o que houve + o que fazer (reenviável).
           await db.finishSchedule(job.id, 'error',
               error: friendlySendError(e, driverName: job.driverName));

@@ -108,15 +108,38 @@ class WhatsAppDriver extends NetworkDriver {
       decoded = {};
     }
     if (res.statusCode >= 400) {
-      String msg = 'HTTP ${res.statusCode}';
-      if (decoded is Map) {
-        final m = decoded['message'];
-        if (m is String && m.isNotEmpty) msg += ': $m';
-      }
-      throw DriverException('evolution: $msg');
+      throw DriverException(
+          'evolution: HTTP ${res.statusCode}${_errorDetail(decoded)}');
     }
     if (decoded is Map<String, dynamic>) return decoded;
     throw DriverException('evolution: resposta inesperada');
+  }
+
+  /// Mensagem de erro da Evolution em qualquer formato conhecido.
+  /// A v2.3.7 esconde o motivo real em `response.message` (lista de
+  /// listas), ex.: {"status":400,"response":{"message":["Error:
+  /// Connection Closed"]}} — sem isso o app só via "HTTP 400" e culpava
+  /// o número do contato em vez do socket morto.
+  static String _errorDetail(dynamic decoded) {
+    if (decoded is! Map) return '';
+    dynamic m = decoded['message'];
+    final resp = decoded['response'];
+    // Prefere o motivo específico do "response" ao genérico "Bad Request".
+    if (m == null && resp is Map) {
+      m = resp['message'] ?? resp['error'];
+    }
+    m ??= decoded['error'];
+    var text = '';
+    if (m is List) {
+      text = m
+          .map((e) => e is List ? e.join(' ') : '$e')
+          .where((e) => e.trim().isNotEmpty)
+          .join(' ');
+    } else if (m != null) {
+      text = '$m';
+    }
+    text = text.trim();
+    return text.isEmpty ? '' : ': $text';
   }
 
   @override
@@ -318,8 +341,10 @@ class WhatsAppDriver extends NetworkDriver {
       friendlySendError(e, driverName: name);
 
   /// Verificação profunda: connectionState=open E operação real na rede
-  /// do WhatsApp (whatsappNumbers). É a única que detecta o "socket
-  /// fantasma" — open que não envia (500/428).
+  /// do WhatsApp. Usa sendPresence (não envia mensagem) porque
+  /// whatsappNumbers responde do CACHE da Evolution e dava "PROVA REAL"
+  /// falsa com o socket morto — foi assim que o agendamento de 02/11
+  /// queimou em HTTP 400 "Connection Closed".
   Future<DeepCheck> verifyDeep({String? number}) async {
     _lastCheckAt = DateTime.now();
     final open = await isConnected();
@@ -342,25 +367,32 @@ class WhatsAppDriver extends NetworkDriver {
           checkedAt: _lastCheckAt!);
     }
     try {
+      // sendPresence percorre o socket de verdade (baileys sendNode) e
+      // NÃO entrega mensagem nenhuma. 'paused' limpa indicador de
+      // digitação: efeito visual praticamente nulo no contato.
       final res = await _client
           .post(
-              Uri.parse(
-                  '$_base/chat/whatsappNumbers/${_config.instance}'),
+              Uri.parse('$_base/chat/sendPresence/${_config.instance}'),
               headers: _headers,
               body: jsonEncode({
-                'numbers': [digits]
+                'number': digits,
+                'presence': 'paused',
+                'delay': 1200,
               }))
           .timeout(const Duration(seconds: 15));
-      if (res.statusCode == 200) {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
         _setOnline('evolution: conectado (prova real às ${_hhmmss()})');
         return DeepCheck(
             ok: true,
-            detail: 'PROVA REAL: a rede do WhatsApp respondeu '
+            detail: 'PROVA REAL: o socket do WhatsApp respondeu '
                 '(verificado às ${_hhmmss()}). Pode agendar tranquilo.',
             checkedAt: _lastCheckAt!);
       }
+      // Evolution antiga sem /chat/sendPresence: cai na prova por cache.
+      if (res.statusCode == 404) return _verifyNumbersCached(digits);
       final err = DriverException(
-          'whatsappNumbers: HTTP ${res.statusCode} ${res.body}');
+          'sendPresence: HTTP ${res.statusCode} '
+          '${_errorDetail(_decodeBody(res.body))}');
       _markOffline(_offlineDetail(err));
       return DeepCheck(
           ok: false,
@@ -379,6 +411,45 @@ class WhatsAppDriver extends NetworkDriver {
     }
   }
 
+  dynamic _decodeBody(String body) {
+    try {
+      return body.isEmpty ? null : jsonDecode(body);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Prova antiga (Evolution sem sendPresence): whatsappNumbers responde
+  /// do cache, então é só um teste fraco — nunca chame de "prova real".
+  Future<DeepCheck> _verifyNumbersCached(String digits) async {
+    try {
+      final res = await _client
+          .post(Uri.parse('$_base/chat/whatsappNumbers/${_config.instance}'),
+              headers: _headers,
+              body: jsonEncode({
+                'numbers': [digits]
+              }))
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200) {
+        return DeepCheck(
+            ok: true,
+            detail: 'Conexão respondendo (verificação por cache — sua '
+                'Evolution não tem sendPresence).',
+            checkedAt: _lastCheckAt!);
+      }
+      final err = DriverException(
+          'whatsappNumbers: HTTP ${res.statusCode} '
+          '${_errorDetail(_decodeBody(res.body))}');
+      _markOffline(_offlineDetail(err));
+    } on TimeoutException {
+      _markOffline(_offlineDetail(DriverException('Tempo esgotado')));
+    } catch (_) {
+      _markOffline(_offlineDetail(DriverException('Falha de rede')));
+    }
+    return DeepCheck(
+        ok: false, detail: _status.detail, checkedAt: _lastCheckAt!);
+  }
+
   String _hhmmss() {
     final n = DateTime.now();
     return '${n.hour.toString().padLeft(2, '0')}:'
@@ -386,9 +457,20 @@ class WhatsAppDriver extends NetworkDriver {
         '${n.second.toString().padLeft(2, '0')}';
   }
 
-  /// Reinicia a sessão travada em 'connecting' (PUT /instance/restart).
+  /// Reinicia a sessão travada em 'connecting' (POST /instance/restart).
+  /// A v2.3.7 responde 404 para PUT (método antigo) — era por isso que a
+  /// auto-cura nunca reiniciava de verdade.
   Future<void> restartInstance() async {
-    await _json('PUT', '/instance/restart/${_config.instance}');
+    try {
+      await _json('POST', '/instance/restart/${_config.instance}');
+    } on DriverException catch (e) {
+      if (e.message.contains('404')) {
+        // Evolution antiga (v1/v2 inicial) usava PUT.
+        await _json('PUT', '/instance/restart/${_config.instance}');
+      } else {
+        rethrow;
+      }
+    }
   }
 
   DateTime? _lastAutoRestart;
@@ -489,10 +571,43 @@ class WhatsAppDriver extends NetworkDriver {
     return null;
   }
 
-  /// Envio com auto-cura: se o socket estiver fantasma (500/428/fechado),
-  /// tenta ressuscitar a sessão 1x e repete. Se falhar de novo, derruba o
-  /// status para erro NA HORA (nada de verde mentiroso) e lança o erro
-  /// amigável. Erro de payload (400) e chave (401) NÃO repetem.
+  DateTime? _lastContainerRestart;
+
+  /// Último recurso no desktop: reinicia o CONTAINER da Evolution.
+  /// Na v2.3.7 o POST /instance/restart responde 200 mas NÃO ressuscita o
+  /// socket fantasma (a sessão fica "open" para sempre e todo envio dá
+  /// "Connection Closed"). Só reiniciar o container reabre a conexão de
+  /// verdade. Opt-in por CHRONOS_EVOLUTION_CONTAINER (o daemon do PC já
+  /// faz isso sozinho; o app não sai reiniciando Docker sem aviso).
+  /// Throttle de 10min.
+  Future<bool> _restartEvolutionContainer() async {
+    if (Platform.isAndroid || Platform.isIOS) return false;
+    final name =
+        (Platform.environment['CHRONOS_EVOLUTION_CONTAINER'] ?? '').trim();
+    if (name.isEmpty) return false;
+    final now = DateTime.now();
+    if (_lastContainerRestart != null &&
+        now.difference(_lastContainerRestart!) < const Duration(minutes: 10)) {
+      return false;
+    }
+    _lastContainerRestart = now;
+    try {
+      final r = await Process.run('docker', ['restart', name]);
+      if (r.exitCode != 0) return false;
+      // A Evolution precisa de ~30-40s para reabrir o socket.
+      await Future<void>.delayed(const Duration(seconds: 35));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Envio com auto-cura: se o socket estiver fantasma (500/428/400
+  /// "Connection Closed"), tenta ressuscitar a sessão 1x e repete; se o
+  /// restart de instância não resolver (v2.3.7), reinicia o container no
+  /// desktop e repete. Se falhar de novo, derruba o status para erro NA
+  /// HORA (nada de verde mentiroso) e lança o erro amigável. Erro de
+  /// payload (400 "requires property") e chave (401) NÃO repetem.
   Future<T> _sendWithRecovery<T>(Future<T> Function() once,
       {required bool allowRetry}) async {
     try {
@@ -506,16 +621,45 @@ class WhatsAppDriver extends NetworkDriver {
         _markOffline(friendlySendError(e, driverName: name));
         throw DriverException(_status.detail);
       }
+      // Socket morto disfarçado de 400: a Evolution v2.3.7 responde
+      // "HTTP 400 ... Connection Closed" (não 428) quando o socket caiu.
+      // Isso NÃO é payload ruim: ressuscita e repete (nunca queima o
+      // agendamento para erro por causa disso).
+      final ghostMarker = isGhostSocketError(e);
+      if (ghostMarker) {
+        if (allowRetry && await _recoverOnce()) {
+          try {
+            final r = await once();
+            _lastCheckAt = DateTime.now();
+            _setOnline('evolution: reconectada na auto-cura');
+            return r;
+          } on DriverException catch (e2) {
+            if (isGhostSocketError(e2) &&
+                await _restartEvolutionContainer()) {
+              try {
+                final r = await once();
+                _lastCheckAt = DateTime.now();
+                _setOnline('evolution: reconectada (container reiniciado)');
+                return r;
+              } on DriverException catch (e3) {
+                _markOffline(friendlySendError(e3, driverName: name));
+                throw DriverException(_status.detail);
+              }
+            }
+            _markOffline(friendlySendError(e2, driverName: name));
+            throw DriverException(_status.detail);
+          }
+        }
+        _markOffline(friendlySendError(e, driverName: name));
+        throw DriverException(_status.detail);
+      }
       // Payload recusado: problema no contato/texto, não no socket.
       if (msg.contains('400') || msg.contains('404')) rethrow;
       // 500 SEM "connection closed" costuma ser rate-overlimit do
       // WhatsApp (rajada no resync que a Evolution faz ao reabrir o
       // socket): reiniciar a sessão aqui dispara ressincronia completa
       // e piora a saturação — espera ~1min e repete 1x.
-      final low = msg.toLowerCase();
-      final ghostMarker =
-          low.contains('connection closed') || low.contains('428');
-      if (!ghostMarker && msg.contains('500')) {
+      if (msg.contains('500')) {
         await Future<void>.delayed(const Duration(seconds: 65));
         try {
           final r = await once();
@@ -731,21 +875,44 @@ class WhatsAppDriver extends NetworkDriver {
   /// Contatos agregados de 3 fontes com fallbacks (PowerZap find_all):
   /// findContacts (2 corpos) + findChats (2 corpos) + fetchAllGroups.
   /// Robusto a falha parcial: uma fonte vazia não zera a lista.
+  ///
+  /// Pegadinha do Evolution: na tabela de CONTATOS o pushName de um JID
+  /// de GRUPO é atualizado com o nome de quem mandou a última mensagem
+  /// (o grupo "vira" a pessoa, ex.: "Base 148" vira "Marcio") — o grupo
+  /// continua na lista, mas a busca por "base148" não acha mais. findChats
+  /// e fetchAllGroups trazem o assunto real, então prevalecem.
   @override
   Future<List<Contact>> fetchContacts() async {
     final merged = <String, Contact>{};
+    final trustedGroup = <String>{}; // ids cujo nome já é o assunto real
 
     Future<void> collect(
-        String method, String path, Map<String, dynamic> body) async {
+        String method, String path, Map<String, dynamic> body,
+        {bool trustedGroups = false}) async {
       try {
         final decoded = await _jsonRaw(method, path, body);
         for (final row in _asRows(decoded)) {
           final c = _parseRow(row);
           if (c == null) continue;
           final prev = merged[c.id];
-          if (prev == null ||
-              (prev.displayName == prev.handle && c.displayName != c.handle)) {
+          if (prev == null) {
             merged[c.id] = c;
+            if (c.kind == 'group' && trustedGroups) trustedGroup.add(c.id);
+            continue;
+          }
+          if (prev.displayName == prev.handle && c.displayName != c.handle) {
+            merged[c.id] = c; // sem nome -> com nome
+            if (c.kind == 'group' && trustedGroups) trustedGroup.add(c.id);
+            continue;
+          }
+          // Grupo com nome poluído só troca por fonte confiável
+          // (findChats/fetchAllGroups = assunto real do grupo).
+          if (c.kind == 'group' &&
+              trustedGroups &&
+              !trustedGroup.contains(c.id) &&
+              c.displayName != c.handle) {
+            merged[c.id] = c;
+            trustedGroup.add(c.id);
           }
         }
       } on DriverException {
@@ -755,23 +922,32 @@ class WhatsAppDriver extends NetworkDriver {
 
     await collect('POST', '/chat/findContacts/${_config.instance}', {'where': {}});
     await collect('POST', '/chat/findContacts/${_config.instance}', {});
-    await collect('POST', '/chat/findChats/${_config.instance}', {});
+    await collect('POST', '/chat/findChats/${_config.instance}', {},
+        trustedGroups: true);
     await collect('POST', '/chat/findChats/${_config.instance}',
-        {'where': {}, 'orderBy': {'createdAt': 'desc'}});
+        {'where': {}, 'orderBy': {'createdAt': 'desc'}},
+        trustedGroups: true);
+    // Fonte autoritativa (assunto fresco). Sujeita a rate-overlimit do
+    // WhatsApp logo após o pareamento (~40s no pior caso): timeout maior.
     try {
       final decoded = await _jsonRaw(
-          'GET', '/group/fetchAllGroups/${_config.instance}?getParticipants=false', {});
+          'GET',
+          '/group/fetchAllGroups/${_config.instance}?getParticipants=false',
+          {},
+          timeout: const Duration(seconds: 60));
       for (final Map row in _asRows(decoded)) {
         final jid = '${row['id'] ?? row['remoteJid'] ?? row['jid'] ?? ''}';
         if (!jid.endsWith('@g.us')) continue;
         final name =
             '${row['subject'] ?? row['name'] ?? ''}'.trim();
+        if (name.isEmpty) continue; // mantém o nome vindo das outras fontes
         merged['wa:$jid'] = Contact(
             id: 'wa:$jid',
-            displayName: name.isEmpty ? jid : name,
+            displayName: name,
             handle: jid,
             kind: 'group',
             driverName: 'whatsapp');
+        trustedGroup.add('wa:$jid');
       }
     } on DriverException {
       // sem grupos: segue com contatos/chats
@@ -785,16 +961,17 @@ class WhatsAppDriver extends NetworkDriver {
   }
 
   Future<dynamic> _jsonRaw(String method, String path,
-      Map<String, dynamic> body) async {
+      Map<String, dynamic> body,
+      {Duration timeout = const Duration(seconds: 10)}) async {
     http.Response res;
     final uri = Uri.parse('$_base$path');
     try {
       if (method == 'GET') {
-        res = await _client.get(uri, headers: _headers)
-            .timeout(const Duration(seconds: 10));
+        res = await _client.get(uri, headers: _headers).timeout(timeout);
       } else {
-        res = await _client.post(uri, headers: _headers, body: jsonEncode(body))
-            .timeout(const Duration(seconds: 10));
+        res = await _client
+            .post(uri, headers: _headers, body: jsonEncode(body))
+            .timeout(timeout);
       }
     } on SocketException catch (e) {
       throw DriverException(

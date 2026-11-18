@@ -69,9 +69,13 @@ class _ContactsTacticalViewState extends State<ContactsTacticalView> {
           if (_kind != 'todos' && c.kind != _kind) return false;
           if (_driver != 'todos' && c.driverName != _driver) return false;
           if (q.isEmpty) return true;
-          return '${c.displayName} ${c.handle} ${c.kind} ${c.driverName}'
-              .toLowerCase()
-              .contains(q);
+          final hay = '${c.displayName} ${c.handle} ${c.kind} ${c.driverName}'
+              .toLowerCase();
+          if (hay.contains(q)) return true;
+          // "base148" deve achar "Base 148": compara ignorando espaços.
+          final qNs = q.replaceAll(' ', '');
+          return qNs.isNotEmpty &&
+              hay.replaceAll(' ', '').contains(qNs);
         }).toList();
 
         return HudPanel(

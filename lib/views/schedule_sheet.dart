@@ -57,9 +57,13 @@ Future<bool> showScheduleSheet({
 
   bool matches(Contact c, String q) {
     if (q.isEmpty) return true;
-    return '${c.displayName} ${c.handle} ${c.kind} ${c.driverName}'
-        .toLowerCase()
-        .contains(q);
+    final hay = '${c.displayName} ${c.handle} ${c.kind} ${c.driverName}'
+        .toLowerCase();
+    if (hay.contains(q)) return true;
+    // "base148" deve achar "Base 148": compara ignorando espaços.
+    final qNs = q.replaceAll(' ', '');
+    return qNs.isNotEmpty &&
+        hay.replaceAll(' ', '').contains(qNs);
   }
 
   var saved = false;

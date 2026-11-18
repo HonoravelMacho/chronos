@@ -146,6 +146,41 @@ void main() {
       expect(await d.requestPairingCode('55 11 99999-0001'), 'ABCD-1234');
     });
 
+    test('grupo não "vira" o último remetente (pushName poluído)', () async {
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('findContacts')) {
+          // Tabela Contact: pushName do JID de grupo = quem mandou a
+          // última mensagem — o grupo "vira" a pessoa.
+          return http.Response(jsonEncode([
+            {'remoteJid': '120363407936962094@g.us', 'pushName': 'Marcio'},
+          ]), 200);
+        }
+        if (path.contains('findChats')) {
+          // Tabela Chat: pushName = assunto real do grupo.
+          return http.Response(jsonEncode([
+            {'remoteJid': '120363407936962094@g.us',
+             'pushName': 'Base 148'},
+          ]), 200);
+        }
+        if (path.contains('fetchAllGroups')) {
+          return http.Response(jsonEncode([
+            {'id': '120363407936962094@g.us', 'subject': 'Base 148'},
+          ]), 200);
+        }
+        return http.Response('{"message":"Not found"}', 404);
+      });
+      final d = WhatsAppDriver(
+          config: EvolutionConfig(baseUrl: 'http://127.0.0.1:9',
+              apiKey: 'k', instance: 'chronos'),
+          client: client);
+      final all = await d.fetchContacts();
+      final grupo = all.firstWhere((c) => c.id == 'wa:120363407936962094@g.us');
+      expect(grupo.displayName, 'Base 148');
+      expect(grupo.kind, 'group');
+      expect(all.any((c) => c.displayName == 'Marcio'), isFalse);
+    });
+
     test('QR aninhado em qrcode{} também decodifica', () async {
       final tiny = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
           'AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
